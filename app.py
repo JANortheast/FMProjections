@@ -1,173 +1,226 @@
 import streamlit as st
-import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime, date
+import numpy as np
+import datetime as dt
 import calendar
 
-st.set_page_config(layout="wide")
-
-st.title("FM Projections Dashboard")
-
-# =====================================================
-# SETTINGS
-# =====================================================
-
-# Automatically use today's date
-today = np.datetime64(date.today())
-
-# If today is weekend, move to next business day
-if not np.is_busday(today):
-    today = np.busday_offset(today, 0, roll='forward')
-
-start_date = today
-
-# Deadline (manually change year/month here)
-DEADLINE_YEAR = 2026
-DEADLINE_MONTH = 4   # April
-
-last_day = calendar.monthrange(DEADLINE_YEAR, DEADLINE_MONTH)[1]
-deadline_date = np.datetime64(date(DEADLINE_YEAR, DEADLINE_MONTH, last_day))
+st.set_page_config(page_title="FM Projections", layout="wide")
+st.title("📊 FM Projections - Production Timeline")
 
 # =====================================================
-# DATA (EDIT THESE VALUES)
+# AUTO START DATE (TODAY)
 # =====================================================
+today = dt.date.today()
+start_date = np.datetime64(today)
 
-span1_tasks = ["Temp Stringers", "Permanent Stringers"]
-span1_quantities = np.array([120, 180])
-span1_rates = np.array([8, 6])  # units per crew per day
-
-# =====================================================
-# CREW LOGIC
-# =====================================================
-
-def get_crews(current_day):
-    """
-    Example crew schedule logic.
-    Modify as needed.
-    """
-    # Example: 2 crews after March 15
-    if current_day >= np.datetime64("2026-03-15"):
-        return 2
-    return 1
-
+# Move start date to next business day if today is weekend
+if not np.is_busday(start_date):
+    start_date = np.busday_offset(start_date, 0, roll='forward')
 
 # =====================================================
-# BUSINESS-DAY SAFE SCHEDULER
+# SIDEBAR INPUTS
 # =====================================================
+st.sidebar.header("Project Parameters")
 
-def build_schedule(quantities, rates, start):
+# -------------------------------
+# Span 7–21 Quantities
+# -------------------------------
+st.sidebar.subheader("Span 7–21 Quantities (each)")
+stringers_7_21 = st.sidebar.number_input("Stringers (7–21)", min_value=0, value=852, step=1)
+cross_frames_7_21 = st.sidebar.number_input("Cross Frames (7–21)", min_value=0, value=82, step=1)
+cross_girders_7_21 = st.sidebar.number_input("Cross Girders (7–21)", min_value=0, value=22, step=1)
 
-    # Ensure start date is business day
-    if not np.is_busday(start):
-        start = np.busday_offset(start, 0, roll='forward')
+# -------------------------------
+# Span 22–36B Quantities
+# -------------------------------
+st.sidebar.subheader("Span 22–36B Quantities (each)")
+stringers_22_36B = st.sidebar.number_input("Stringers (22–36B)", min_value=0, value=1369, step=1)
+portals_22_36B = st.sidebar.number_input("Portals (22–36B)", min_value=0, value=8, step=1)
 
+# -------------------------------
+# Production Rates (2 crews)
+# -------------------------------
+st.sidebar.subheader("Production Rates (per day for 2 crews)")
+stringers_rate = st.sidebar.number_input("Stringers rate", min_value=0.1, value=16.0, step=0.5)
+cross_frames_rate = st.sidebar.number_input("Cross Frames rate", min_value=0.1, value=10.0, step=0.5)
+cross_girders_rate = st.sidebar.number_input("Cross Girders rate", min_value=0.1, value=1.5, step=0.5)
+portals_rate = st.sidebar.number_input("Portals rate", min_value=0.1, value=2.0, step=0.5)
+
+rates_2_crews = np.array([stringers_rate, cross_frames_rate, cross_girders_rate, portals_rate])
+rate_per_crew = rates_2_crews / 2
+
+# -------------------------------
+# Base Crews
+# -------------------------------
+st.sidebar.subheader("Base Crew Configuration")
+base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=2, step=1)
+
+# -------------------------------
+# Deadline (default = April 30)
+# -------------------------------
+st.sidebar.subheader("Project Deadline")
+default_deadline = dt.date(today.year, 4, 30)
+deadline_input = st.sidebar.date_input("Deadline Date", value=default_deadline)
+deadline_date = np.datetime64(deadline_input)
+
+# -------------------------------
+# Temporary Crew Windows
+# -------------------------------
+st.sidebar.subheader("Temporary Crew Windows")
+num_windows = st.sidebar.number_input("Number of Temporary Crew Windows", min_value=0, value=0, step=1)
+crew_windows = []
+validation_errors = False
+
+for i in range(int(num_windows)):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Window {i+1}**")
+    crews = st.sidebar.number_input(f"Crews During Window {i+1}", min_value=1, value=base_crews+1, step=1, key=f"crews_{i}")
+    start = st.sidebar.date_input(f"Start Date {i+1}", value=today, key=f"start_{i}")
+    end = st.sidebar.date_input(f"End Date {i+1}", value=today+dt.timedelta(days=14), key=f"end_{i}")
+
+    if start >= end:
+        st.sidebar.error(f"❌ Window {i+1}: Start must be before End")
+        validation_errors = True
+    else:
+        crew_windows.append({"index": i+1, "crews": crews, "start": np.datetime64(start), "end": np.datetime64(end)})
+
+# Check overlaps
+crew_windows = sorted(crew_windows, key=lambda x: x["start"])
+for i in range(len(crew_windows)-1):
+    if crew_windows[i]["end"] > crew_windows[i+1]["start"]:
+        st.sidebar.error(f"❌ Window {crew_windows[i]['index']} overlaps with Window {crew_windows[i+1]['index']}")
+        validation_errors = True
+
+if validation_errors:
+    st.stop()
+
+# =====================================================
+# CREW LOOKUP FUNCTION
+# =====================================================
+def get_crews_for_day(day, base_crews, windows):
+    crews_today = base_crews
+    for w in windows:
+        if w["start"] <= day <= w["end"]:
+            crews_today = w["crews"]
+    return crews_today
+
+# =====================================================
+# SCHEDULER (BUSINESS DAYS ONLY)
+# =====================================================
+def build_schedule(quantities, rate_per_crew, base_crews, windows, start_date):
     remaining = quantities.copy()
     cumulative = [0]
-    dates = [start]
-
-    current_day = start
+    dates = [start_date]
+    current_day = start_date
     task_index = 0
     completion_dates = []
 
-    while task_index < len(remaining):
+    # Make sure start is business day
+    if not np.is_busday(current_day):
+        current_day = np.busday_offset(current_day, 0, roll='forward')
 
-        # Skip weekends
+    while task_index < len(remaining):
         if not np.is_busday(current_day):
             current_day = np.busday_offset(current_day, 0, roll='forward')
 
-        crews_today = get_crews(current_day)
-        daily_rate = rates[task_index] * crews_today
+        crews_today = get_crews_for_day(current_day, base_crews, windows)
+        daily_rate = rate_per_crew[task_index] * crews_today
 
         completed = min(daily_rate, remaining[task_index])
         remaining[task_index] -= completed
-
         cumulative.append(cumulative[-1] + completed)
 
         if remaining[task_index] <= 0:
-            # Ensure completion date is weekday
+            # Ensure completion is on business day
             if not np.is_busday(current_day):
                 current_day = np.busday_offset(current_day, 0, roll='forward')
-
             completion_dates.append(current_day)
             task_index += 1
 
-        # Move to next business day
         current_day = np.busday_offset(current_day, 1)
         dates.append(current_day)
 
     return dates, cumulative, completion_dates
 
-
 # =====================================================
-# BUILD SCHEDULE
+# SPAN 7–21
 # =====================================================
+span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
+span1_quantities = np.array([stringers_7_21, cross_frames_7_21, cross_girders_7_21])
+span1_rates = rate_per_crew[:3]
 
 span1_dates, span1_curve, span1_completion = build_schedule(
-    span1_quantities,
-    span1_rates,
-    start_date
+    span1_quantities, span1_rates, base_crews, crew_windows, start_date
 )
-
-final_completion = span1_completion[-1]
+span1_finish = span1_completion[-1]
 
 # =====================================================
-# SCHEDULE STATUS (Ahead or Behind)
+# SPAN 22–36B
 # =====================================================
+span2_start = np.busday_offset(span1_finish, 1)
+span2_tasks = ["Stringers", "Portals"]
+span2_quantities = np.array([stringers_22_36B, portals_22_36B])
+span2_rates = np.array([rate_per_crew[0], rate_per_crew[3]])
 
-days_difference = np.busday_count(deadline_date, final_completion)
+span2_dates, span2_curve, span2_completion = build_schedule(
+    span2_quantities, span2_rates, base_crews, crew_windows, span2_start
+)
+span2_finish = span2_completion[-1]
 
-if final_completion > deadline_date:
-    status_text = f"🔴 {abs(days_difference)} business days BEHIND schedule"
+# =====================================================
+# PLOT FUNCTION
+# =====================================================
+def plot_span(dates, curve, tasks, completion_dates, title, deadline=None):
+    fig, ax = plt.subplots(figsize=(14,6))
+    ax.plot(dates, curve, linewidth=3, marker="o", markersize=4)
+
+    # Deadline line
+    if deadline is not None:
+        ax.axvline(deadline, color="red", linewidth=3)
+        ax.text(deadline, max(curve)*0.9, "DEADLINE", rotation=90, color="red", fontweight="bold", va="top")
+
+    # Completion dotted lines and text
+    colors = ["green", "orange", "purple", "blue"]
+    for task, comp_date, color in zip(tasks, completion_dates, colors):
+        ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
+        ax.text(comp_date, max(curve)*0.05, f"{task}\n{comp_date}", rotation=90, va="bottom", fontsize=9, fontweight="bold", color=color)
+
+    # Start and finish points
+    ax.scatter(dates[0], curve[0], s=120, color="black", zorder=5)
+    ax.text(dates[0], curve[0], f"Start\n{dates[0]}", va="bottom", fontsize=9, fontweight="bold")
+
+    ax.scatter(completion_dates[-1], curve[-1], s=120, color="black", zorder=5)
+    ax.text(completion_dates[-1], curve[-1], f"Finish\n{completion_dates[-1]}", va="bottom", fontsize=9, fontweight="bold")
+
+    ax.set_title(title, fontweight="bold")
+    ax.set_ylabel("Items Completed (each)", fontweight="bold")
+    ax.set_xlabel("Date", fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return fig
+
+# =====================================================
+# PLOTS
+# =====================================================
+st.subheader("Span 7–21 Production Timeline")
+fig1 = plot_span(span1_dates, span1_curve, span1_tasks, span1_completion, "Span 7–21 Production Timeline", deadline=deadline_date)
+st.pyplot(fig1)
+
+# Deadline status
+days_before_deadline = int((deadline_date - span1_finish)/np.timedelta64(1,'D'))
+if days_before_deadline >= 0:
+    st.success(f"✅ Span 7–21 finishes {days_before_deadline} days BEFORE deadline")
 else:
-    status_text = f"🟢 {abs(days_difference)} business days AHEAD of schedule"
+    st.error(f"⚠️ Span 7–21 finishes {abs(days_before_deadline)} days AFTER deadline")
 
-st.subheader(status_text)
+st.subheader("Span 22–36B Production Timeline")
+fig2 = plot_span(span2_dates, span2_curve, span2_tasks, span2_completion, "Span 22–36B Production Timeline")
+st.pyplot(fig2)
 
 # =====================================================
-# PLOT
+# SIDEBAR SUMMARY
 # =====================================================
-
-fig, ax = plt.subplots(figsize=(14,7))
-
-# Main progress curve
-ax.plot(span1_dates, span1_curve, linewidth=3)
-
-# Solid red deadline line
-ax.axvline(deadline_date, color="red", linewidth=3)
-ax.text(deadline_date,
-        max(span1_curve)*0.9,
-        "DEADLINE",
-        rotation=90,
-        color="red",
-        fontweight="bold",
-        verticalalignment="top")
-
-# Dotted lines for task completions
-for task, comp_date in zip(span1_tasks, span1_completion):
-    ax.axvline(comp_date, linestyle="--", alpha=0.7)
-    ax.text(comp_date,
-            max(span1_curve)*0.05,
-            f"{task} Complete\n{comp_date}",
-            rotation=90,
-            verticalalignment="bottom")
-
-# Start marker
-ax.scatter(span1_dates[0], span1_curve[0], s=120)
-ax.text(span1_dates[0],
-        span1_curve[0],
-        f" Start\n{span1_dates[0]}",
-        verticalalignment="bottom")
-
-# Finish marker
-ax.scatter(final_completion, span1_curve[-1], s=120)
-ax.text(final_completion,
-        span1_curve[-1],
-        f" Finish\n{final_completion}",
-        verticalalignment="bottom")
-
-ax.set_title("Span 7–21 Projection")
-ax.set_ylabel("Cumulative Quantity")
-ax.set_xlabel("Date")
-ax.grid(True)
-
-st.pyplot(fig)
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Completion Dates")
+st.sidebar.write(f"Span 7–21 Finish: {span1_finish}")
+st.sidebar.write(f"Span 22–36B Finish: {span2_finish}")
