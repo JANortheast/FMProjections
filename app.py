@@ -204,19 +204,44 @@ span2_dates, span2_curve, span2_completion = build_schedule(
 span2_finish = span2_completion[-1]
 
 # =====================================================
-# PLOT SPAN 7–21 (WITH DEADLINE)
+# PLOT SPAN 7–21 (WITH DEADLINE + COMPLETION LABELS)
 # =====================================================
 fig1, ax1 = plt.subplots(figsize=(12,6))
 
 ax1.plot(span1_dates, span1_curve, linewidth=3)
-ax1.axvline(deadline_date, linestyle="--", linewidth=3)
+
+# Solid Red Deadline Line
+ax1.axvline(deadline_date, color="red", linewidth=3)
+
+# Label for deadline
+ax1.text(
+    deadline_date,
+    max(span1_curve) * 0.9,
+    "DEADLINE",
+    rotation=90,
+    color="red",
+    fontweight="bold",
+    verticalalignment="top"
+)
+
+# Dotted lines + vertical text for each task completion
+for task, comp_date in zip(span1_tasks, span1_completion):
+    ax1.axvline(comp_date, linestyle="--", alpha=0.7)
+
+    ax1.text(
+        comp_date,
+        max(span1_curve) * 0.05,
+        f"{task}\n{comp_date}",
+        rotation=90,
+        fontsize=9,
+        fontweight="bold",
+        verticalalignment="bottom"
+    )
+
 ax1.set_title("Span 7–21 Production Timeline")
 ax1.set_ylabel("Items Completed (each)")
 ax1.set_xlabel("Date")
 ax1.grid(True)
-
-for task, comp_date in zip(span1_tasks, span1_completion):
-    ax1.axvline(comp_date, linestyle="--", alpha=0.6)
 
 st.pyplot(fig1)
 
