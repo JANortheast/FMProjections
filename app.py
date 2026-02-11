@@ -60,36 +60,47 @@ default_deadline = dt.date(today.year, 4, 30)
 deadline_input = st.sidebar.date_input("Deadline Date", value=default_deadline)
 deadline_date = np.datetime64(deadline_input)
 
-# -------------------------------
-# Temporary Crew Windows
-# -------------------------------
+# =====================================================
+# Temporary Crew Windows with Confirmation
+# =====================================================
 st.sidebar.subheader("Temporary Crew Windows")
 num_windows = st.sidebar.number_input("Number of Temporary Crew Windows", min_value=0, value=0, step=1)
 crew_windows = []
-validation_errors = False
+
+if 'confirmed_windows' not in st.session_state:
+    st.session_state.confirmed_windows = {}
 
 for i in range(int(num_windows)):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"**Window {i+1}**")
     crews = st.sidebar.number_input(f"Crews During Window {i+1}", min_value=1, value=base_crews+1, step=1, key=f"crews_{i}")
+    
     start = st.sidebar.date_input(f"Start Date {i+1}", value=today, key=f"start_{i}")
     end = st.sidebar.date_input(f"End Date {i+1}", value=today+dt.timedelta(days=14), key=f"end_{i}")
 
-    if start >= end:
-        st.sidebar.error(f"❌ Window {i+1}: Start must be before End")
-        validation_errors = True
-    else:
-        crew_windows.append({"index": i+1, "crews": crews, "start": np.datetime64(start), "end": np.datetime64(end)})
+    # Automatically fix end date if before start
+    if end <= start:
+        end = start + dt.timedelta(days=1)
 
-# Check overlaps
+    # Show start/end with day of week
+    start_str = start.strftime("%A, %B %d, %Y")
+    end_str = end.strftime("%A, %B %d, %Y")
+    st.sidebar.info(f"Temporary crew window will start **{start_str}** and finish **{end_str}**.")
+
+    # Confirm button
+    if st.sidebar.button(f"Confirm Window {i+1}", key=f"confirm_{i}"):
+        st.session_state.confirmed_windows[i] = {"crews": crews, "start": np.datetime64(start), "end": np.datetime64(end)}
+
+# Collect confirmed windows
+for w in st.session_state.confirmed_windows.values():
+    crew_windows.append(w)
+
+# Sort and adjust overlaps automatically
 crew_windows = sorted(crew_windows, key=lambda x: x["start"])
 for i in range(len(crew_windows)-1):
     if crew_windows[i]["end"] > crew_windows[i+1]["start"]:
-        st.sidebar.error(f"❌ Window {crew_windows[i]['index']} overlaps with Window {crew_windows[i+1]['index']}")
-        validation_errors = True
-
-if validation_errors:
-    st.stop()
+        st.sidebar.warning(f"⚠️ Window {i+1} overlaps with Window {i+2}, adjusting next start date automatically.")
+        crew_windows[i+1]["start"] = np.busday_offset(crew_windows[i]["end"], 1)
 
 # =====================================================
 # CREW LOOKUP FUNCTION
@@ -191,12 +202,13 @@ def plot_span(dates, curve, tasks, completion_dates, title, deadline=None, windo
         ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
         ax.text(comp_date, max(curve)*0.05, f"{task}\n{comp_date}", rotation=90, va="bottom", fontsize=9, fontweight="bold", color=color)
 
+    # Start and finish points
     ax.scatter(dates[0], curve[0], s=120, color="black", zorder=5)
     ax.text(dates[0], curve[0], f"Start\n{dates[0]}", va="bottom", fontsize=9, fontweight="bold")
-
     ax.scatter(completion_dates[-1], curve[-1], s=120, color="black", zorder=5)
     ax.text(completion_dates[-1], curve[-1], f"Finish\n{completion_dates[-1]}", va="bottom", fontsize=9, fontweight="bold")
 
+    # Temporary crew windows
     if windows:
         for w in windows:
             start = w["start"]
