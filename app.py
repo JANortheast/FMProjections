@@ -45,7 +45,7 @@ st.sidebar.subheader("Base Crew Configuration")
 base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=3, step=1)
 
 # =====================================================
-# MULTIPLE CREW WINDOWS WITH VALIDATION
+# MULTIPLE CREW WINDOWS WITH FULL VALIDATION
 # =====================================================
 st.sidebar.subheader("Temporary Crew Windows")
 
@@ -83,16 +83,31 @@ for i in range(int(num_windows)):
         key=f"end_{i}"
     )
 
-    # ✅ Validation: Start must be before End
     if start > end:
         st.sidebar.error(f"❌ Window {i+1}: Start date cannot be after End date.")
         validation_errors = True
     else:
         crew_windows.append({
+            "index": i + 1,
             "crews": crews,
             "start": np.datetime64(start),
             "end": np.datetime64(end)
         })
+
+# -------------------------------
+# OVERLAP VALIDATION
+# -------------------------------
+crew_windows_sorted = sorted(crew_windows, key=lambda x: x["start"])
+
+for i in range(len(crew_windows_sorted) - 1):
+    current = crew_windows_sorted[i]
+    next_window = crew_windows_sorted[i + 1]
+
+    if current["end"] >= next_window["start"]:
+        st.sidebar.error(
+            f"❌ Window {current['index']} overlaps with Window {next_window['index']}."
+        )
+        validation_errors = True
 
 # -------------------------------
 # Duration / Deadline
@@ -105,13 +120,12 @@ deadline_date = np.busday_offset(start_date, duration_workdays)
 
 total_units = int(sum(quantities))
 
-# Stop execution if validation fails
 if validation_errors:
-    st.error("Fix crew window date errors before generating schedule.")
+    st.error("Fix crew window errors before generating schedule.")
     st.stop()
 
 # =====================================================
-# FUNCTION — CREW LOOKUP PER DAY
+# CREW LOOKUP FUNCTION
 # =====================================================
 def get_crews_for_day(day, base_crews, windows):
     crews_today = base_crews
@@ -121,7 +135,7 @@ def get_crews_for_day(day, base_crews, windows):
     return crews_today
 
 # =====================================================
-# BUILD VARIABLE CREW SCHEDULE
+# BUILD SCHEDULE
 # =====================================================
 def build_curve_variable_crews(quantities, rate_per_crew, base_crews, windows, start_date):
 
@@ -153,7 +167,7 @@ def build_curve_variable_crews(quantities, rate_per_crew, base_crews, windows, s
     return dates, cumulative, task_completion_dates
 
 # =====================================================
-# GENERATE SCHEDULE
+# GENERATE CURVE
 # =====================================================
 dates, curve, task_completion_dates = build_curve_variable_crews(
     quantities,
@@ -172,32 +186,26 @@ fig, ax = plt.subplots(figsize=(14, 7))
 
 ax.plot(dates, curve, linewidth=3, marker="o", markersize=4, label="Production Curve")
 
-# Deadline
 ax.axvline(deadline_date, color="red", linewidth=3, label="Deadline")
 
-# Milestones
 colors = ["green", "orange", "purple"]
 
 for task, comp_date, color in zip(tasks, task_completion_dates, colors):
     ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
-    ax.text(
-        comp_date,
-        total_units * 0.05,
-        f"{task}\n{comp_date}",
-        rotation=90,
-        fontsize=9,
-        color=color,
-        fontweight="bold"
-    )
+    ax.text(comp_date, total_units * 0.05,
+            f"{task}\n{comp_date}",
+            rotation=90,
+            fontsize=9,
+            color=color,
+            fontweight="bold")
 
-# Shade crew windows
 for w in crew_windows:
     ax.axvspan(w["start"], w["end"], alpha=0.15)
 
 ax.set_ylabel("Total Measurements Completed", fontweight="bold")
 ax.set_xlabel("Date", fontweight="bold")
 ax.set_ylim(0, max(total_units * 1.1, 100))
-ax.set_title("Production Timeline with Multiple Crew Windows", fontweight="bold")
+ax.set_title("Production Timeline with Validated Crew Windows", fontweight="bold")
 ax.grid(True, alpha=0.3)
 ax.legend()
 
@@ -205,7 +213,7 @@ plt.tight_layout()
 st.pyplot(fig)
 
 # =====================================================
-# SIDEBAR SUMMARY
+# SUMMARY
 # =====================================================
 st.sidebar.markdown("---")
 st.sidebar.subheader("📈 Summary")
