@@ -12,28 +12,33 @@ st.title("📊 FM Projections - Production Timeline")
 st.sidebar.header("Project Parameters")
 
 # -------------------------------
-# Task quantities
+# Task quantities (ALL IN EACH)
 # -------------------------------
-st.sidebar.subheader("Task Quantities")
-stringers = st.sidebar.number_input("Stringers (units)", min_value=0, value=852, step=1)
-cross_frames = st.sidebar.number_input("Cross Frames (units)", min_value=0, value=82, step=1)
-cross_girders = st.sidebar.number_input("Cross Girders (units)", min_value=0, value=22, step=1)
+st.sidebar.subheader("Task Quantities (each)")
 
-tasks = ["Stringers", "Cross Frames", "Cross Girders"]
-quantities = np.array([stringers, cross_frames, cross_girders], dtype=float)
+stringers = st.sidebar.number_input("Stringers (each)", min_value=0, value=852, step=1)
+cross_frames = st.sidebar.number_input("Cross Frames (each)", min_value=0, value=82, step=1)
+cross_girders = st.sidebar.number_input("Cross Girders (each)", min_value=0, value=22, step=1)
+portals = st.sidebar.number_input("Portals (each)", min_value=0, value=10, step=1)
+
+tasks = ["Stringers", "Cross Frames", "Cross Girders", "Portals"]
+quantities = np.array([stringers, cross_frames, cross_girders, portals], dtype=float)
 
 # -------------------------------
 # Production rates (TOTAL for 2 crews)
 # -------------------------------
 st.sidebar.subheader("Production Rates (per day, for 2 crews)")
+
 stringers_rate_2crews = st.sidebar.number_input("Stringers rate", min_value=0.1, value=16.0, step=0.5)
 cross_frames_rate_2crews = st.sidebar.number_input("Cross Frames rate", min_value=0.1, value=10.0, step=0.5)
 cross_girders_rate_2crews = st.sidebar.number_input("Cross Girders rate", min_value=0.1, value=1.5, step=0.5)
+portals_rate_2crews = st.sidebar.number_input("Portals rate", min_value=0.1, value=2.0, step=0.5)
 
 rates_2_crews = np.array([
     stringers_rate_2crews,
     cross_frames_rate_2crews,
-    cross_girders_rate_2crews
+    cross_girders_rate_2crews,
+    portals_rate_2crews
 ])
 
 rate_per_crew = rates_2_crews / 2
@@ -45,7 +50,7 @@ st.sidebar.subheader("Base Crew Configuration")
 base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=3, step=1)
 
 # =====================================================
-# MULTIPLE CREW WINDOWS WITH FULL VALIDATION
+# MULTIPLE CREW WINDOWS WITH VALIDATION
 # =====================================================
 st.sidebar.subheader("Temporary Crew Windows")
 
@@ -94,9 +99,7 @@ for i in range(int(num_windows)):
             "end": np.datetime64(end)
         })
 
-# -------------------------------
-# OVERLAP VALIDATION
-# -------------------------------
+# Overlap validation
 crew_windows_sorted = sorted(crew_windows, key=lambda x: x["start"])
 
 for i in range(len(crew_windows_sorted) - 1):
@@ -185,10 +188,9 @@ final_completion = task_completion_dates[-1]
 fig, ax = plt.subplots(figsize=(14, 7))
 
 ax.plot(dates, curve, linewidth=3, marker="o", markersize=4, label="Production Curve")
-
 ax.axvline(deadline_date, color="red", linewidth=3, label="Deadline")
 
-colors = ["green", "orange", "purple"]
+colors = ["green", "orange", "purple", "blue"]
 
 for task, comp_date, color in zip(tasks, task_completion_dates, colors):
     ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
@@ -202,7 +204,7 @@ for task, comp_date, color in zip(tasks, task_completion_dates, colors):
 for w in crew_windows:
     ax.axvspan(w["start"], w["end"], alpha=0.15)
 
-ax.set_ylabel("Total Measurements Completed", fontweight="bold")
+ax.set_ylabel("Total Items Completed (each)", fontweight="bold")
 ax.set_xlabel("Date", fontweight="bold")
 ax.set_ylim(0, max(total_units * 1.1, 100))
 ax.set_title("Production Timeline with Validated Crew Windows", fontweight="bold")
@@ -221,7 +223,7 @@ st.sidebar.subheader("📈 Summary")
 col1, col2 = st.sidebar.columns(2)
 
 with col1:
-    st.metric("Total Units", total_units)
+    st.metric("Total Items (each)", total_units)
     st.metric("Start Date", str(start_date))
 
 with col2:
