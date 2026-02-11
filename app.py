@@ -25,53 +25,38 @@ if not np.is_busday(start_date):
 # ==========================
 st.sidebar.subheader("Span 7–21 Quantities (each)")
 
-def reset_stringers_7_21():
-    st.session_state["Stringers_7_21"] = default_span1["Stringers"]
-def reset_cross_frames_7_21():
-    st.session_state["Cross Frames_7_21"] = default_span1["Cross Frames"]
-def reset_cross_girders_7_21():
-    st.session_state["Cross Girders_7_21"] = default_span1["Cross Girders"]
+# Initialize session_state if not already set
+for key, val in {"Stringers_7_21": default_span1["Stringers"],
+                 "Cross Frames_7_21": default_span1["Cross Frames"],
+                 "Cross Girders_7_21": default_span1["Cross Girders"]}.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-stringers_7_21 = st.sidebar.number_input(
-    "Stringers (7–21)", min_value=0, step=1,
-    value=st.session_state.get("Stringers_7_21", default_span1["Stringers"]),
-    key="Stringers_7_21"
-)
+def reset_stringers_7_21(): st.session_state["Stringers_7_21"] = default_span1["Stringers"]
+def reset_cross_frames_7_21(): st.session_state["Cross Frames_7_21"] = default_span1["Cross Frames"]
+def reset_cross_girders_7_21(): st.session_state["Cross Girders_7_21"] = default_span1["Cross Girders"]
+
+stringers_7_21 = st.sidebar.number_input("Stringers (7–21)", min_value=0, step=1, key="Stringers_7_21")
 st.sidebar.button("Reset Stringers 7–21", on_click=reset_stringers_7_21)
-
-cross_frames_7_21 = st.sidebar.number_input(
-    "Cross Frames (7–21)", min_value=0, step=1,
-    value=st.session_state.get("Cross Frames_7_21", default_span1["Cross Frames"]),
-    key="Cross Frames_7_21"
-)
+cross_frames_7_21 = st.sidebar.number_input("Cross Frames (7–21)", min_value=0, step=1, key="Cross Frames_7_21")
 st.sidebar.button("Reset Cross Frames 7–21", on_click=reset_cross_frames_7_21)
-
-cross_girders_7_21 = st.sidebar.number_input(
-    "Cross Girders (7–21)", min_value=0, step=1,
-    value=st.session_state.get("Cross Girders_7_21", default_span1["Cross Girders"]),
-    key="Cross Girders_7_21"
-)
+cross_girders_7_21 = st.sidebar.number_input("Cross Girders (7–21)", min_value=0, step=1, key="Cross Girders_7_21")
 st.sidebar.button("Reset Cross Girders 7–21", on_click=reset_cross_girders_7_21)
 
 st.sidebar.subheader("Span 22–36B Quantities (each)")
 
-def reset_stringers_22_36B():
-    st.session_state["Stringers_22_36B"] = default_span2["Stringers"]
-def reset_portals_22_36B():
-    st.session_state["Portals_22_36B"] = default_span2["Portals"]
+# Initialize session_state if not already set
+for key, val in {"Stringers_22_36B": default_span2["Stringers"],
+                 "Portals_22_36B": default_span2["Portals"]}.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-stringers_22_36B = st.sidebar.number_input(
-    "Stringers (22–36B)", min_value=0, step=1,
-    value=st.session_state.get("Stringers_22_36B", default_span2["Stringers"]),
-    key="Stringers_22_36B"
-)
+def reset_stringers_22_36B(): st.session_state["Stringers_22_36B"] = default_span2["Stringers"]
+def reset_portals_22_36B(): st.session_state["Portals_22_36B"] = default_span2["Portals"]
+
+stringers_22_36B = st.sidebar.number_input("Stringers (22–36B)", min_value=0, step=1, key="Stringers_22_36B")
 st.sidebar.button("Reset Stringers 22–36B", on_click=reset_stringers_22_36B)
-
-portals_22_36B = st.sidebar.number_input(
-    "Portals (22–36B)", min_value=0, step=1,
-    value=st.session_state.get("Portals_22_36B", default_span2["Portals"]),
-    key="Portals_22_36B"
-)
+portals_22_36B = st.sidebar.number_input("Portals (22–36B)", min_value=0, step=1, key="Portals_22_36B")
 st.sidebar.button("Reset Portals 22–36B", on_click=reset_portals_22_36B)
 
 # ==========================
@@ -117,11 +102,8 @@ for i in range(int(num_windows)):
     start = st.sidebar.date_input(f"Start Date {i+1}", value=today, key=f"start_{i}")
     end = st.sidebar.date_input(f"End Date {i+1}", value=today+dt.timedelta(days=14), key=f"end_{i}")
 
-    if start < today:
-        start = today
-        st.sidebar.warning(f"Window {i+1}: Start date adjusted to today.")
-    if end <= start:
-        end = start + dt.timedelta(days=1)
+    if start < today: start = today
+    if end <= start: end = start + dt.timedelta(days=1)
 
     start_str = start.strftime("%A, %B %d, %Y")
     end_str = end.strftime("%A, %B %d, %Y")
@@ -149,7 +131,7 @@ def get_crews_for_day(day, base_crews, windows):
     return crews_today
 
 # ==========================
-# SCHEDULER
+# SCHEDULER FUNCTION
 # ==========================
 def build_schedule(quantities, rate_per_crew, base_crews, windows, start_date):
     remaining = quantities.copy()
