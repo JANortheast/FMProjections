@@ -118,7 +118,7 @@ def get_crews_for_day(day, base_crews, windows):
     return crews_today
 
 # =====================================================
-# SCHEDULER (BUSINESS DAYS ONLY)
+# SCHEDULER (BUSINESS DAYS ONLY, zero quantities handled)
 # =====================================================
 def build_schedule(quantities, rate_per_crew, base_crews, windows, start_date):
     remaining = quantities.copy()
@@ -132,6 +132,12 @@ def build_schedule(quantities, rate_per_crew, base_crews, windows, start_date):
         current_day = np.busday_offset(current_day, 0, roll='forward')
 
     while task_index < len(remaining):
+        # Skip tasks with 0 quantity
+        if remaining[task_index] <= 0:
+            completion_dates.append(current_day)
+            task_index += 1
+            continue
+
         if not np.is_busday(current_day):
             current_day = np.busday_offset(current_day, 0, roll='forward')
 
@@ -162,7 +168,7 @@ def adjust_windows_for_next_span(windows, next_span_start):
         if w["end"] < next_span_start:
             continue
         new_start = max(w["start"], next_span_start)
-        adjusted.append({"index": w["index"], "crews": w["crews"], "start": new_start, "end": w["end"]})
+        adjusted.append({"index": w.get("index",0), "crews": w["crews"], "start": new_start, "end": w["end"]})
     return adjusted
 
 # =====================================================
@@ -170,12 +176,18 @@ def adjust_windows_for_next_span(windows, next_span_start):
 # =====================================================
 span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
 span1_quantities = np.array([stringers_7_21, cross_frames_7_21, cross_girders_7_21])
-span1_rates = rate_per_crew[:3]
 
-span1_dates, span1_curve, span1_completion = build_schedule(
-    span1_quantities, span1_rates, base_crews, crew_windows, start_date
-)
-span1_finish = span1_completion[-1]
+if np.all(span1_quantities == 0):
+    st.success("✅ Span 7–21 is already complete (all quantities are 0).")
+    span1_dates = [start_date]
+    span1_curve = [0]
+    span1_completion = [start_date]
+    span1_finish = start_date
+else:
+    span1_dates, span1_curve, span1_completion = build_schedule(
+        span1_quantities, rate_per_crew[:3], base_crews, crew_windows, start_date
+    )
+    span1_finish = span1_completion[-1]
 
 # =====================================================
 # SPAN 22–36B
@@ -186,10 +198,17 @@ span2_quantities = np.array([stringers_22_36B, portals_22_36B])
 span2_rates = np.array([rate_per_crew[0], rate_per_crew[3]])
 span2_windows = adjust_windows_for_next_span(crew_windows, span2_start)
 
-span2_dates, span2_curve, span2_completion = build_schedule(
-    span2_quantities, span2_rates, base_crews, span2_windows, span2_start
-)
-span2_finish = span2_completion[-1]
+if np.all(span2_quantities == 0):
+    st.success("✅ All field measurements are complete! No work required for Span 22–36B.")
+    span2_dates = [span2_start]
+    span2_curve = [0]
+    span2_completion = [span2_start]
+    span2_finish = span2_start
+else:
+    span2_dates, span2_curve, span2_completion = build_schedule(
+        span2_quantities, span2_rates, base_crews, span2_windows, span2_start
+    )
+    span2_finish = span2_completion[-1]
 
 # =====================================================
 # PLOT FUNCTION
@@ -239,11 +258,12 @@ fig1 = plot_span(span1_dates, span1_curve, span1_tasks, span1_completion,
                  "Span 7–21 Production Timeline", deadline=deadline_date, windows=crew_windows, clip_end=span1_finish)
 st.pyplot(fig1)
 
-days_before_deadline = int((deadline_date - span1_finish)/np.timedelta64(1,'D'))
-if days_before_deadline >= 0:
-    st.success(f"✅ Span 7–21 finishes {days_before_deadline} days BEFORE deadline")
-else:
-    st.error(f"⚠️ Span 7–21 finishes {abs(days_before_deadline)} days AFTER deadline")
+if not np.all(span1_quantities == 0):
+    days_before_deadline = int((deadline_date - span1_finish)/np.timedelta64(1,'D'))
+    if days_before_deadline >= 0:
+        st.success(f"✅ Span 7–21 finishes {days_before_deadline} days BEFORE deadline")
+    else:
+        st.error(f"⚠️ Span 7–21 finishes {abs(days_before_deadline)} days AFTER deadline")
 
 st.subheader("Span 22–36B Production Timeline")
 fig2 = plot_span(span2_dates, span2_curve, span2_tasks, span2_completion,
