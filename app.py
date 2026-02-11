@@ -30,7 +30,12 @@ stringers_rate_2crews = st.sidebar.number_input("Stringers rate", min_value=0.1,
 cross_frames_rate_2crews = st.sidebar.number_input("Cross Frames rate", min_value=0.1, value=10.0, step=0.5)
 cross_girders_rate_2crews = st.sidebar.number_input("Cross Girders rate", min_value=0.1, value=1.5, step=0.5)
 
-rates_2_crews = np.array([stringers_rate_2crews, cross_frames_rate_2crews, cross_girders_rate_2crews])
+rates_2_crews = np.array([
+    stringers_rate_2crews,
+    cross_frames_rate_2crews,
+    cross_girders_rate_2crews
+])
+
 rate_per_crew = rates_2_crews / 2
 
 # -------------------------------
@@ -40,19 +45,22 @@ st.sidebar.subheader("Base Crew Configuration")
 base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=3, step=1)
 
 # =====================================================
-# MULTIPLE CREW WINDOWS
+# MULTIPLE CREW WINDOWS WITH VALIDATION
 # =====================================================
 st.sidebar.subheader("Temporary Crew Windows")
 
-num_windows = st.sidebar.number_input("Number of Temporary Crew Windows",
-                                       min_value=0,
-                                       value=1,
-                                       step=1)
+num_windows = st.sidebar.number_input(
+    "Number of Temporary Crew Windows",
+    min_value=0,
+    value=1,
+    step=1
+)
 
 crew_windows = []
+validation_errors = False
 
 for i in range(int(num_windows)):
-    st.sidebar.markdown(f"---")
+    st.sidebar.markdown("---")
     st.sidebar.markdown(f"**Window {i+1}**")
 
     crews = st.sidebar.number_input(
@@ -75,11 +83,16 @@ for i in range(int(num_windows)):
         key=f"end_{i}"
     )
 
-    crew_windows.append({
-        "crews": crews,
-        "start": np.datetime64(start),
-        "end": np.datetime64(end)
-    })
+    # ✅ Validation: Start must be before End
+    if start > end:
+        st.sidebar.error(f"❌ Window {i+1}: Start date cannot be after End date.")
+        validation_errors = True
+    else:
+        crew_windows.append({
+            "crews": crews,
+            "start": np.datetime64(start),
+            "end": np.datetime64(end)
+        })
 
 # -------------------------------
 # Duration / Deadline
@@ -92,8 +105,13 @@ deadline_date = np.busday_offset(start_date, duration_workdays)
 
 total_units = int(sum(quantities))
 
+# Stop execution if validation fails
+if validation_errors:
+    st.error("Fix crew window date errors before generating schedule.")
+    st.stop()
+
 # =====================================================
-# FUNCTION — VARIABLE CREW SCHEDULER
+# FUNCTION — CREW LOOKUP PER DAY
 # =====================================================
 def get_crews_for_day(day, base_crews, windows):
     crews_today = base_crews
@@ -102,7 +120,9 @@ def get_crews_for_day(day, base_crews, windows):
             crews_today = w["crews"]
     return crews_today
 
-
+# =====================================================
+# BUILD VARIABLE CREW SCHEDULE
+# =====================================================
 def build_curve_variable_crews(quantities, rate_per_crew, base_crews, windows, start_date):
 
     remaining = quantities.copy()
@@ -116,7 +136,6 @@ def build_curve_variable_crews(quantities, rate_per_crew, base_crews, windows, s
     while task_index < len(remaining):
 
         crews_today = get_crews_for_day(current_day, base_crews, windows)
-
         daily_rate = rate_per_crew[task_index] * crews_today
 
         completed = min(daily_rate, remaining[task_index])
@@ -133,9 +152,8 @@ def build_curve_variable_crews(quantities, rate_per_crew, base_crews, windows, s
 
     return dates, cumulative, task_completion_dates
 
-
 # =====================================================
-# BUILD CURVE
+# GENERATE SCHEDULE
 # =====================================================
 dates, curve, task_completion_dates = build_curve_variable_crews(
     quantities,
@@ -162,9 +180,15 @@ colors = ["green", "orange", "purple"]
 
 for task, comp_date, color in zip(tasks, task_completion_dates, colors):
     ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
-    ax.text(comp_date, total_units * 0.05,
-            f"{task}\n{comp_date}",
-            rotation=90, fontsize=9, color=color, fontweight="bold")
+    ax.text(
+        comp_date,
+        total_units * 0.05,
+        f"{task}\n{comp_date}",
+        rotation=90,
+        fontsize=9,
+        color=color,
+        fontweight="bold"
+    )
 
 # Shade crew windows
 for w in crew_windows:
@@ -187,9 +211,11 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📈 Summary")
 
 col1, col2 = st.sidebar.columns(2)
+
 with col1:
     st.metric("Total Units", total_units)
     st.metric("Start Date", str(start_date))
+
 with col2:
     st.metric("Deadline", str(deadline_date))
     st.metric("Final Completion", str(final_completion))
