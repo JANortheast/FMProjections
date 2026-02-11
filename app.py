@@ -47,7 +47,7 @@ rate_per_crew = rates_2_crews / 2
 # Base crews
 # -------------------------------
 st.sidebar.subheader("Base Crew Configuration")
-base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=2, step=1)
+base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=0, step=1)
 
 # =====================================================
 # MULTIPLE CREW WINDOWS WITH VALIDATION
@@ -70,7 +70,7 @@ for i in range(int(num_windows)):
 
     crews = st.sidebar.number_input(
         f"Crews During Window {i+1}",
-        min_value=1,
+        min_value=0,
         value=base_crews + 1,
         step=1,
         key=f"crews_{i}"
