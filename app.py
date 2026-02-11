@@ -34,36 +34,52 @@ rates_2_crews = np.array([stringers_rate_2crews, cross_frames_rate_2crews, cross
 rate_per_crew = rates_2_crews / 2
 
 # -------------------------------
-# Crew Configuration
+# Base crews
 # -------------------------------
-st.sidebar.subheader("Crew Configuration")
-num_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=3, step=1)
+st.sidebar.subheader("Base Crew Configuration")
+base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=3, step=1)
 
-# Temporary override
-st.sidebar.subheader("Temporary Crew Increase")
-use_override = st.sidebar.checkbox("Enable Temporary Crew Increase")
+# =====================================================
+# MULTIPLE CREW WINDOWS
+# =====================================================
+st.sidebar.subheader("Temporary Crew Windows")
 
-if use_override:
-    override_crews = st.sidebar.number_input(
-        "Crews During Override",
+num_windows = st.sidebar.number_input("Number of Temporary Crew Windows",
+                                       min_value=0,
+                                       value=1,
+                                       step=1)
+
+crew_windows = []
+
+for i in range(int(num_windows)):
+    st.sidebar.markdown(f"---")
+    st.sidebar.markdown(f"**Window {i+1}**")
+
+    crews = st.sidebar.number_input(
+        f"Crews During Window {i+1}",
         min_value=1,
-        value=num_crews + 1,
-        step=1
+        value=base_crews + 1,
+        step=1,
+        key=f"crews_{i}"
     )
 
-    override_start = st.sidebar.date_input(
-        "Override Start Date",
-        value=dt.date(2026, 4, 1)
+    start = st.sidebar.date_input(
+        f"Start Date {i+1}",
+        value=dt.date(2026, 4, 1),
+        key=f"start_{i}"
     )
 
-    override_end = st.sidebar.date_input(
-        "Override End Date",
-        value=dt.date(2026, 4, 15)
+    end = st.sidebar.date_input(
+        f"End Date {i+1}",
+        value=dt.date(2026, 4, 15),
+        key=f"end_{i}"
     )
-else:
-    override_crews = None
-    override_start = None
-    override_end = None
+
+    crew_windows.append({
+        "crews": crews,
+        "start": np.datetime64(start),
+        "end": np.datetime64(end)
+    })
 
 # -------------------------------
 # Duration / Deadline
@@ -77,18 +93,18 @@ deadline_date = np.busday_offset(start_date, duration_workdays)
 total_units = int(sum(quantities))
 
 # =====================================================
-# VARIABLE CREW PRODUCTION FUNCTION
+# FUNCTION — VARIABLE CREW SCHEDULER
 # =====================================================
-def build_curve_variable_crews(
-    quantities,
-    rate_per_crew,
-    base_crews,
-    start_date,
-    override_enabled=False,
-    override_crews=None,
-    override_start=None,
-    override_end=None
-):
+def get_crews_for_day(day, base_crews, windows):
+    crews_today = base_crews
+    for w in windows:
+        if w["start"] <= day <= w["end"]:
+            crews_today = w["crews"]
+    return crews_today
+
+
+def build_curve_variable_crews(quantities, rate_per_crew, base_crews, windows, start_date):
+
     remaining = quantities.copy()
     cumulative = [0]
     dates = [start_date]
@@ -99,16 +115,13 @@ def build_curve_variable_crews(
 
     while task_index < len(remaining):
 
-        crews_today = base_crews
-
-        if override_enabled:
-            if np.datetime64(override_start) <= current_day <= np.datetime64(override_end):
-                crews_today = override_crews
+        crews_today = get_crews_for_day(current_day, base_crews, windows)
 
         daily_rate = rate_per_crew[task_index] * crews_today
 
         completed = min(daily_rate, remaining[task_index])
         remaining[task_index] -= completed
+
         cumulative.append(cumulative[-1] + completed)
 
         if remaining[task_index] <= 0:
@@ -120,18 +133,16 @@ def build_curve_variable_crews(
 
     return dates, cumulative, task_completion_dates
 
+
 # =====================================================
 # BUILD CURVE
 # =====================================================
 dates, curve, task_completion_dates = build_curve_variable_crews(
-    quantities=quantities,
-    rate_per_crew=rate_per_crew,
-    base_crews=num_crews,
-    start_date=start_date,
-    override_enabled=use_override,
-    override_crews=override_crews,
-    override_start=override_start,
-    override_end=override_end
+    quantities,
+    rate_per_crew,
+    base_crews,
+    crew_windows,
+    start_date
 )
 
 final_completion = task_completion_dates[-1]
@@ -141,36 +152,28 @@ final_completion = task_completion_dates[-1]
 # =====================================================
 fig, ax = plt.subplots(figsize=(14, 7))
 
-ax.plot(dates, curve, linewidth=3, label=f"{num_crews} Base Crew(s)", marker="o", markersize=4)
+ax.plot(dates, curve, linewidth=3, marker="o", markersize=4, label="Production Curve")
 
-# Deadline line
-ax.axvline(deadline_date, color="red", linestyle="-", linewidth=3, label="Deadline")
-ax.text(deadline_date, total_units * 0.95,
-        "DEADLINE", color="red", rotation=90,
-        va="top", ha="right", fontweight="bold")
+# Deadline
+ax.axvline(deadline_date, color="red", linewidth=3, label="Deadline")
 
 # Milestones
 colors = ["green", "orange", "purple"]
 
 for task, comp_date, color in zip(tasks, task_completion_dates, colors):
-    ax.axvline(comp_date, linestyle="--", linewidth=1.5, alpha=0.7, color=color)
+    ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
     ax.text(comp_date, total_units * 0.05,
             f"{task}\n{comp_date}",
-            rotation=90, va="bottom",
-            fontsize=9, color=color, fontweight="bold")
+            rotation=90, fontsize=9, color=color, fontweight="bold")
 
-# Override shading
-if use_override:
-    ax.axvspan(
-        np.datetime64(override_start),
-        np.datetime64(override_end),
-        alpha=0.15
-    )
+# Shade crew windows
+for w in crew_windows:
+    ax.axvspan(w["start"], w["end"], alpha=0.15)
 
 ax.set_ylabel("Total Measurements Completed", fontweight="bold")
 ax.set_xlabel("Date", fontweight="bold")
 ax.set_ylim(0, max(total_units * 1.1, 100))
-ax.set_title("Production Timeline with Variable Crews", fontweight="bold")
+ax.set_title("Production Timeline with Multiple Crew Windows", fontweight="bold")
 ax.grid(True, alpha=0.3)
 ax.legend()
 
@@ -192,16 +195,10 @@ with col2:
     st.metric("Final Completion", str(final_completion))
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("⏱️ Task Completion")
-
-for task, comp_date in zip(tasks, task_completion_dates):
-    st.sidebar.write(f"**{task}:** {comp_date}")
-
-st.sidebar.markdown("---")
 
 days_before_deadline = int((deadline_date - final_completion) / np.timedelta64(1, 'D'))
 
 if days_before_deadline >= 0:
-    st.sidebar.success(f"✅ ON SCHEDULE - Finishes {days_before_deadline} days early")
+    st.sidebar.success(f"✅ ON SCHEDULE - {days_before_deadline} days early")
 else:
-    st.sidebar.error(f"⚠️ BEHIND SCHEDULE - Finishes {abs(days_before_deadline)} days late")
+    st.sidebar.error(f"⚠️ BEHIND SCHEDULE - {abs(days_before_deadline)} days late")
