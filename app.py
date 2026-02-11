@@ -78,6 +78,11 @@ for i in range(int(num_windows)):
     start = st.sidebar.date_input(f"Start Date {i+1}", value=today, key=f"start_{i}")
     end = st.sidebar.date_input(f"End Date {i+1}", value=today+dt.timedelta(days=14), key=f"end_{i}")
 
+    # Ensure start date is not before today
+    if start < today:
+        start = today
+        st.sidebar.warning(f"Window {i+1}: Start date adjusted to today since it cannot be in the past.")
+
     # Automatically fix end date if before start
     if end <= start:
         end = start + dt.timedelta(days=1)
