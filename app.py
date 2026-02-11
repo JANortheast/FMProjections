@@ -134,7 +134,7 @@ def build_schedule(quantities, rate_per_crew, base_crews, windows, start_date):
     while task_index < len(remaining):
         # Skip tasks with 0 quantity
         if remaining[task_index] <= 0:
-            completion_dates.append(current_day)
+            completion_dates.append(None)
             task_index += 1
             continue
 
@@ -168,7 +168,7 @@ def adjust_windows_for_next_span(windows, next_span_start):
         if w["end"] < next_span_start:
             continue
         new_start = max(w["start"], next_span_start)
-        adjusted.append({"index": w.get("index",0), "crews": w["crews"], "start": new_start, "end": w["end"]})
+        adjusted.append({"crews": w["crews"], "start": new_start, "end": w["end"]})
     return adjusted
 
 # =====================================================
@@ -222,15 +222,17 @@ def plot_span(dates, curve, tasks, completion_dates, title, deadline=None, windo
         ax.text(deadline, max(curve)*0.9, "DEADLINE", rotation=90, color="red", fontweight="bold", va="top")
 
     colors = ["green", "orange", "purple", "blue"]
-    for task, comp_date, color in zip(tasks, completion_dates, colors):
+    for i, (task, comp_date, color) in enumerate(zip(tasks, completion_dates, colors)):
+        if comp_date is None:
+            continue
         ax.axvline(comp_date, linestyle="--", alpha=0.7, color=color)
         ax.text(comp_date, max(curve)*0.05, f"{task}\n{comp_date}", rotation=90, va="bottom", fontsize=9, fontweight="bold", color=color)
 
     # Start and finish points
     ax.scatter(dates[0], curve[0], s=120, color="black", zorder=5)
     ax.text(dates[0], curve[0], f"Start\n{dates[0]}", va="bottom", fontsize=9, fontweight="bold")
-    ax.scatter(completion_dates[-1], curve[-1], s=120, color="black", zorder=5)
-    ax.text(completion_dates[-1], curve[-1], f"Finish\n{completion_dates[-1]}", va="bottom", fontsize=9, fontweight="bold")
+    ax.scatter([d for d in completion_dates if d is not None][-1], curve[-1], s=120, color="black", zorder=5)
+    ax.text([d for d in completion_dates if d is not None][-1], curve[-1], f"Finish\n{[d for d in completion_dates if d is not None][-1]}", va="bottom", fontsize=9, fontweight="bold")
 
     # Temporary crew windows
     if windows:
