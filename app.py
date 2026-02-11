@@ -21,49 +21,51 @@ if not np.is_busday(start_date):
     start_date = np.busday_offset(start_date, 0, roll='forward')
 
 # ==========================
-# RESET BUTTONS
-# ==========================
-st.sidebar.subheader("Reset Quantities to Defaults")
-
-if st.sidebar.button("Reset Span 7–21 Quantities"):
-    for key, val in default_span1.items():
-        st.session_state[f"{key}_7_21"] = val
-
-if st.sidebar.button("Reset Span 22–36B Quantities"):
-    for key, val in default_span2.items():
-        st.session_state[f"{key}_22_36B"] = val
-
-# ==========================
-# SIDEBAR QUANTITIES
+# SIDEBAR QUANTITIES WITH INDIVIDUAL RESET BUTTONS
 # ==========================
 st.sidebar.subheader("Span 7–21 Quantities (each)")
+
 stringers_7_21 = st.sidebar.number_input(
     "Stringers (7–21)", min_value=0, step=1,
     value=st.session_state.get("Stringers_7_21", default_span1["Stringers"]),
     key="Stringers_7_21"
 )
+if st.sidebar.button("Reset Stringers 7–21"):
+    st.session_state["Stringers_7_21"] = default_span1["Stringers"]
+
 cross_frames_7_21 = st.sidebar.number_input(
     "Cross Frames (7–21)", min_value=0, step=1,
     value=st.session_state.get("Cross Frames_7_21", default_span1["Cross Frames"]),
     key="Cross Frames_7_21"
 )
+if st.sidebar.button("Reset Cross Frames 7–21"):
+    st.session_state["Cross Frames_7_21"] = default_span1["Cross Frames"]
+
 cross_girders_7_21 = st.sidebar.number_input(
     "Cross Girders (7–21)", min_value=0, step=1,
     value=st.session_state.get("Cross Girders_7_21", default_span1["Cross Girders"]),
     key="Cross Girders_7_21"
 )
+if st.sidebar.button("Reset Cross Girders 7–21"):
+    st.session_state["Cross Girders_7_21"] = default_span1["Cross Girders"]
 
 st.sidebar.subheader("Span 22–36B Quantities (each)")
+
 stringers_22_36B = st.sidebar.number_input(
     "Stringers (22–36B)", min_value=0, step=1,
     value=st.session_state.get("Stringers_22_36B", default_span2["Stringers"]),
     key="Stringers_22_36B"
 )
+if st.sidebar.button("Reset Stringers 22–36B"):
+    st.session_state["Stringers_22_36B"] = default_span2["Stringers"]
+
 portals_22_36B = st.sidebar.number_input(
     "Portals (22–36B)", min_value=0, step=1,
     value=st.session_state.get("Portals_22_36B", default_span2["Portals"]),
     key="Portals_22_36B"
 )
+if st.sidebar.button("Reset Portals 22–36B"):
+    st.session_state["Portals_22_36B"] = default_span2["Portals"]
 
 # ==========================
 # PRODUCTION RATES
