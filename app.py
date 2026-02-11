@@ -19,7 +19,7 @@ st.sidebar.subheader("Task Quantities (each)")
 stringers = st.sidebar.number_input("Stringers (each)", min_value=0, value=852, step=1)
 cross_frames = st.sidebar.number_input("Cross Frames (each)", min_value=0, value=82, step=1)
 cross_girders = st.sidebar.number_input("Cross Girders (each)", min_value=0, value=22, step=1)
-portals = st.sidebar.number_input("Portals (each)", min_value=0, value=10, step=1)
+portals = st.sidebar.number_input("Portals (each)", min_value=0, value=8, step=1)
 
 tasks = ["Stringers", "Cross Frames", "Cross Girders", "Portals"]
 quantities = np.array([stringers, cross_frames, cross_girders, portals], dtype=float)
