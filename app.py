@@ -66,7 +66,7 @@ deadline_input = st.sidebar.date_input("Deadline", dt.date(today.year, 4, 30))
 deadline_date = np.datetime64(deadline_input)
 
 # =====================================================
-# TEMP WINDOWS (CONFIRM-ONLY DISPLAY)
+# TEMP WINDOWS (CONFIRM-ONLY STORAGE)
 # =====================================================
 st.sidebar.subheader("Temporary Crew Windows")
 
@@ -78,18 +78,21 @@ num_windows = st.sidebar.number_input("Number of Windows", 0, 5, 0)
 for i in range(int(num_windows)):
 
     st.sidebar.markdown("---")
-    crews = st.sidebar.number_input(f"Crews During Window {i+1}", 1, value=base_crews+1, key=f"crews_{i}")
+    crews = st.sidebar.number_input(
+        f"Crews During Window {i+1}",
+        1,
+        value=base_crews + 1,
+        key=f"crews_{i}"
+    )
     start = st.sidebar.date_input(f"Start Date {i+1}", today, key=f"start_{i}")
     end = st.sidebar.date_input(f"End Date {i+1}", today + dt.timedelta(days=14), key=f"end_{i}")
 
     if st.sidebar.button(f"Confirm Window {i+1}", key=f"confirm_{i}"):
-
         st.session_state.confirmed_windows[i] = {
             "crews": crews,
             "start": np.datetime64(start),
             "end": np.datetime64(end)
         }
-
         st.sidebar.success("✅ Window Confirmed")
 
 crew_windows = list(st.session_state.confirmed_windows.values())
@@ -144,13 +147,16 @@ span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
 span1_quantities = np.array([r_s1, r_cf1, r_cg1])
 
 span1_dates, span1_curve, span1_completion = build_schedule(
-    span1_tasks, span1_quantities, rate_per_crew[:3], start_date
+    span1_tasks,
+    span1_quantities,
+    rate_per_crew[:3],
+    start_date
 )
 
 span1_finish = span1_completion[-1] if span1_completion else start_date
 
 # =====================================================
-# BUILD SPAN 22–36B (STARTS AT SPAN1 FINISH)
+# BUILD SPAN 22–36B (STARTS EXACTLY AT SPAN1 FINISH)
 # =====================================================
 span2_tasks = ["Stringers", "Portals"]
 span2_quantities = np.array([r_s2, r_p2])
@@ -165,18 +171,23 @@ span2_dates, span2_curve, span2_completion = build_schedule(
 span2_finish = span2_completion[-1] if span2_completion else span1_finish
 
 # =====================================================
-# WINDOW FILTERING PER SPAN
+# WINDOW SPLITTING PER SPAN
 # =====================================================
-def filter_windows_for_span(span_dates):
-    span_start = span_dates[0]
-    span_end = span_dates[-1]
-    applicable = []
+def get_windows_for_span(span_start, span_end):
+
+    span_windows = []
 
     for w in crew_windows:
-        if w["end"] >= span_start and w["start"] <= span_end:
-            applicable.append(w)
 
-    return applicable
+        if w["end"] < span_start or w["start"] > span_end:
+            continue
+
+        start = max(w["start"], span_start)
+        end = min(w["end"], span_end)
+
+        span_windows.append({"start": start, "end": end})
+
+    return span_windows
 
 # =====================================================
 # PLOTTING
@@ -186,8 +197,11 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline):
     fig, ax = plt.subplots(figsize=(15,6))
     ax.plot(dates, curve, linewidth=3)
 
-    # Only show windows for that span
-    span_windows = filter_windows_for_span(dates)
+    span_start = dates[0]
+    span_end = dates[-1]
+
+    # Only show confirmed + applicable windows
+    span_windows = get_windows_for_span(span_start, span_end)
     for w in span_windows:
         ax.axvspan(w["start"], w["end"], alpha=0.15)
 
@@ -200,7 +214,7 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline):
         ax.axvline(comp, linestyle="--", color=color)
         ax.text(
             comp,
-            max(curve)*0.05,
+            max(curve) * 0.1,
             f"{task} Done\n{comp}",
             rotation=90,
             fontsize=9,
