@@ -86,8 +86,12 @@ def build_schedule(tasks, quantities, per_crew_rates, start_dt64, base_crews: in
 
         crews_today = crews_for_date(day_py, base_crews)
         daily_rate = float(per_crew_rates[task_index]) * float(crews_today)
-        completed_today = min(daily_rate, remaining[task_index])
 
+        # If rate is 0, nothing will ever finish -> break safely
+        if daily_rate <= 0:
+            break
+
+        completed_today = min(daily_rate, remaining[task_index])
         remaining[task_index] -= completed_today
         cumulative.append(cumulative[-1] + completed_today)
 
@@ -184,21 +188,44 @@ if page == "Standard Projection (Manual Rates)":
     cross_girders_rate = st.sidebar.number_input("Cross Girders rate", 0.1, value=1.5, key="cross_girders_rate")
     portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0, key="portals_rate")
 else:
-    st.sidebar.subheader("Measured Rate Inputs")
-    days_measured_s1 = st.sidebar.number_input("Span 7–21 Days Measured", min_value=1, value=10, step=1, key="days_measured_s1")
-    days_measured_s2 = st.sidebar.number_input("Span 22–36B Days Measured", min_value=1, value=10, step=1, key="days_measured_s2")
+    st.sidebar.subheader("Measured Rate Inputs (Days can be 0)")
+
+    # Allow 0 days now
+    days_measured_s1 = st.sidebar.number_input(
+        "Span 7–21 Days Measured",
+        min_value=0,
+        value=0,
+        step=1,
+        key="days_measured_s1",
+    )
+    days_measured_s2 = st.sidebar.number_input(
+        "Span 22–36B Days Measured",
+        min_value=0,
+        value=10,
+        step=1,
+        key="days_measured_s2",
+    )
+
+    def safe_rate(completed, days):
+        # If days is 0, rate should be 0 (meaning "no measured rate / ignore")
+        if days is None or days <= 0:
+            return 0.0
+        return float(completed) / float(days)
 
     # Rates derived from completed / days measured (per day for 2 crews)
-    stringers_rate = (c_s1 / days_measured_s1) if days_measured_s1 > 0 else 0.0
-    cross_frames_rate = (c_cf1 / days_measured_s1) if days_measured_s1 > 0 else 0.0
-    cross_girders_rate = (c_cg1 / days_measured_s1) if days_measured_s1 > 0 else 0.0
-    portals_rate = (c_p2 / days_measured_s2) if days_measured_s2 > 0 else 0.0
+    stringers_rate = safe_rate(c_s1, days_measured_s1)
+    cross_frames_rate = safe_rate(c_cf1, days_measured_s1)
+    cross_girders_rate = safe_rate(c_cg1, days_measured_s1)
+    portals_rate = safe_rate(c_p2, days_measured_s2)
 
     st.sidebar.markdown("**Derived Rates (per day for 2 crews)**")
     st.sidebar.write(f"- Stringers: **{stringers_rate:.2f}**")
     st.sidebar.write(f"- Cross Frames: **{cross_frames_rate:.2f}**")
     st.sidebar.write(f"- Cross Girders: **{cross_girders_rate:.2f}**")
     st.sidebar.write(f"- Portals: **{portals_rate:.2f}**")
+
+    if days_measured_s1 == 0:
+        st.sidebar.info("Span 7–21 days measured = 0 → derived rates set to 0 for Span 7–21 items.")
 
 # ---- Temp windows (shared)
 st.sidebar.subheader("Temporary Crew Adjustment Windows")
@@ -218,7 +245,7 @@ if st.session_state.temp_enabled:
     new_end = st.sidebar.date_input(
         "New Window End Date",
         value=new_start,
-        min_value=new_start,  # end can't be before start
+        min_value=new_start,
         key="new_window_end",
     )
     new_crews = st.sidebar.number_input(
@@ -327,7 +354,7 @@ span2_dates, span2_curve, span2_completion, span2_finish_day = build_schedule(
     span2_tasks,
     [r_s2, r_p2],
     per_crew_rates_span2,
-    span1_finish_day,  # starts when span 1 finishes (date)
+    span1_finish_day,
     base_crews=base_crews,
 )
 
@@ -360,8 +387,8 @@ st.pyplot(
         span2_tasks,
         span2_completion,
         "Span 22–36B Production",
-        show_deadline=False,   # no deadline line here
+        show_deadline=False,
         deadline_date=None,
-        y_offset=span1_end_value,  # starts at end point of Span 7–21 curve
+        y_offset=span1_end_value,
     )
 )
