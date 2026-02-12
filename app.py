@@ -3,6 +3,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import datetime as dt
 
+# =====================================================
+# PAGE CONFIG
+# =====================================================
 st.set_page_config(page_title="FM Projections", layout="wide")
 st.title("📊 FM Projections - Production Timeline")
 
@@ -29,79 +32,14 @@ if "temp_enabled" not in st.session_state:
     st.session_state.temp_enabled = False
 
 # =====================================================
-# SIDEBAR INPUTS
+# TOP PAGE SELECTOR (NAV)
 # =====================================================
-st.sidebar.subheader("Span 7–21 Completed")
-c_s1 = st.sidebar.number_input("Stringers Completed (7–21)", 0, TOTALS_SPAN1["Stringers"], 0, key="c_s1")
-c_cf1 = st.sidebar.number_input("Cross Frames Completed (7–21)", 0, TOTALS_SPAN1["Cross Frames"], 0, key="c_cf1")
-c_cg1 = st.sidebar.number_input("Cross Girders Completed (7–21)", 0, TOTALS_SPAN1["Cross Girders"], 0, key="c_cg1")
-
-st.sidebar.subheader("Span 22–36B Completed")
-c_s2 = st.sidebar.number_input("Stringers Completed (22–36B)", 0, TOTALS_SPAN2["Stringers"], 0, key="c_s2")
-c_p2 = st.sidebar.number_input("Portals Completed", 0, TOTALS_SPAN2["Portals"], 0, key="c_p2")
-
-st.sidebar.subheader("Production Rates (per day for 2 crews)")
-stringers_rate = st.sidebar.number_input("Stringers rate", 0.1, value=16.0, key="stringers_rate")
-cross_frames_rate = st.sidebar.number_input("Cross Frames rate", 0.1, value=10.0, key="cross_frames_rate")
-cross_girders_rate = st.sidebar.number_input("Cross Girders rate", 0.1, value=1.5, key="cross_girders_rate")
-portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0, key="portals_rate")
-
-base_crews = st.sidebar.number_input("Base Crews", 1, value=2, key="base_crews")
-
-deadline_input = st.sidebar.date_input(
-    "Deadline (Span 7–21)",
-    value=max(dt.date(today.year, 4, 30), today),
-    min_value=today,
-    key="deadline_input",
+page = st.radio(
+    "Select analysis type",
+    ["Standard Projection (Manual Rates)", "Rate-Based Projection (Measured Rates)"],
+    horizontal=True,
+    key="page_selector",
 )
-
-# =====================================================
-# TEMP CREW ADJUSTMENT WINDOWS (multiple)
-# =====================================================
-st.sidebar.subheader("Temporary Crew Adjustment Windows")
-st.session_state.temp_enabled = st.sidebar.checkbox(
-    "Enable Temporary Crew Changes",
-    value=st.session_state.temp_enabled,
-    key="enable_temp",
-)
-
-if st.session_state.temp_enabled:
-    new_start = st.sidebar.date_input(
-        "New Window Start Date",
-        value=today,
-        min_value=today,
-        key="new_window_start",
-    )
-    new_end = st.sidebar.date_input(
-        "New Window End Date",
-        value=new_start,
-        min_value=new_start,
-        key="new_window_end",
-    )
-    new_crews = st.sidebar.number_input(
-        "Crews During New Window",
-        min_value=1,
-        value=3,
-        key="new_window_crews",
-    )
-
-    col1, col2 = st.sidebar.columns(2)
-    if col1.button("✅ Confirm / Add Window", key="add_window_btn"):
-        st.session_state.temp_windows.append({"start": new_start, "end": new_end, "crews": int(new_crews)})
-        st.rerun()
-
-    if col2.button("🔄 Reset All Windows", key="reset_all_windows_btn"):
-        st.session_state.temp_windows = []
-        st.rerun()
-
-    if st.session_state.temp_windows:
-        st.sidebar.markdown("**Active windows (last wins if overlapping):**")
-        for i, w in enumerate(st.session_state.temp_windows):
-            cols = st.sidebar.columns([6, 2])
-            cols[0].write(f"{i+1}) {w['start']} → {w['end']} | crews={w['crews']}")
-            if cols[1].button("❌", key=f"del_window_{i}"):
-                st.session_state.temp_windows.pop(i)
-                st.rerun()
 
 # =====================================================
 # HELPERS
@@ -123,7 +61,7 @@ def overlap_window(x_min, x_max, w_start, w_end):
     return None
 
 def crews_for_date(day: dt.date, base: int) -> int:
-    # LAST window wins if overlapping
+    """LAST window wins if overlapping."""
     if not st.session_state.temp_enabled:
         return base
     crews = base
@@ -132,68 +70,7 @@ def crews_for_date(day: dt.date, base: int) -> int:
             crews = int(w["crews"])
     return crews
 
-# =====================================================
-# REMAINING QUANTITIES (updates immediately)
-# =====================================================
-r_s1 = max(TOTALS_SPAN1["Stringers"] - c_s1, 0)
-r_cf1 = max(TOTALS_SPAN1["Cross Frames"] - c_cf1, 0)
-r_cg1 = max(TOTALS_SPAN1["Cross Girders"] - c_cg1, 0)
-
-r_s2 = max(TOTALS_SPAN2["Stringers"] - c_s2, 0)
-r_p2 = max(TOTALS_SPAN2["Portals"] - c_p2, 0)
-
-# =====================================================
-# DISPLAY TOTALS + COMPLETED + REMAINING (READ-ONLY + LIVE)
-# =====================================================
-st.subheader("Totals / Completed / Remaining")
-
-colA, colB = st.columns(2)
-
-with colA:
-    st.markdown("### Span 7–21")
-    st.markdown("**Totals**")
-    t1, t2, t3 = st.columns(3)
-    t1.metric("Stringers", TOTALS_SPAN1["Stringers"])
-    t2.metric("Cross Frames", TOTALS_SPAN1["Cross Frames"])
-    t3.metric("Cross Girders", TOTALS_SPAN1["Cross Girders"])
-
-    st.markdown("**Completed**")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Stringers", c_s1)
-    c2.metric("Cross Frames", c_cf1)
-    c3.metric("Cross Girders", c_cg1)
-
-    st.markdown("**Remaining**")
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Stringers", int(r_s1))
-    r2.metric("Cross Frames", int(r_cf1))
-    r3.metric("Cross Girders", int(r_cg1))
-
-with colB:
-    st.markdown("### Span 22–36B")
-    st.markdown("**Totals**")
-    t1, t2 = st.columns(2)
-    t1.metric("Stringers", TOTALS_SPAN2["Stringers"])
-    t2.metric("Portals", TOTALS_SPAN2["Portals"])
-
-    st.markdown("**Completed**")
-    c1, c2 = st.columns(2)
-    c1.metric("Stringers", c_s2)
-    c2.metric("Portals", c_p2)
-
-    st.markdown("**Remaining**")
-    r1, r2 = st.columns(2)
-    r1.metric("Stringers", int(r_s2))
-    r2.metric("Portals", int(r_p2))
-
-# Convert rates to per-crew (inputs are per day for 2 crews)
-per_crew_rates_span1 = np.array([stringers_rate, cross_frames_rate, cross_girders_rate], dtype=float) / 2.0
-per_crew_rates_span2 = np.array([stringers_rate, portals_rate], dtype=float) / 2.0
-
-# =====================================================
-# BUILD SCHEDULE (returns finish_date too)
-# =====================================================
-def build_schedule(tasks, quantities, per_crew_rates, start_dt64):
+def build_schedule(tasks, quantities, per_crew_rates, start_dt64, base_crews: int):
     remaining = np.array(quantities, dtype=float)
     cumulative = [0.0]
     dates = [ensure_busday(start_dt64)]
@@ -224,9 +101,6 @@ def build_schedule(tasks, quantities, per_crew_rates, start_dt64):
 
     return dates, cumulative, completion_dates, finish_day
 
-# =====================================================
-# PLOT FUNCTION
-# =====================================================
 def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False, deadline_date=None, y_offset=0.0):
     x = [to_pydate(d) for d in dates]
     y = [v + y_offset for v in curve]
@@ -234,6 +108,7 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False,
     fig, ax = plt.subplots(figsize=(15, 6))
     ax.plot(x, y, linewidth=3)
 
+    # Shade each temp window if it overlaps this plot's date range
     if st.session_state.temp_enabled and st.session_state.temp_windows:
         x_min, x_max = min(x), max(x)
         for w in st.session_state.temp_windows:
@@ -278,7 +153,162 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False,
     return fig
 
 # =====================================================
-# RUN PROJECTIONS
+# SIDEBAR (shared across both pages)
+# =====================================================
+st.sidebar.header("Inputs")
+
+# ---- Completed (shared)
+st.sidebar.subheader("Span 7–21 Completed")
+c_s1 = st.sidebar.number_input("Stringers Completed (7–21)", 0, TOTALS_SPAN1["Stringers"], 0, key="c_s1")
+c_cf1 = st.sidebar.number_input("Cross Frames Completed (7–21)", 0, TOTALS_SPAN1["Cross Frames"], 0, key="c_cf1")
+c_cg1 = st.sidebar.number_input("Cross Girders Completed (7–21)", 0, TOTALS_SPAN1["Cross Girders"], 0, key="c_cg1")
+
+st.sidebar.subheader("Span 22–36B Completed")
+c_s2 = st.sidebar.number_input("Stringers Completed (22–36B)", 0, TOTALS_SPAN2["Stringers"], 0, key="c_s2")
+c_p2 = st.sidebar.number_input("Portals Completed", 0, TOTALS_SPAN2["Portals"], 0, key="c_p2")
+
+# ---- Crews + deadline (shared)
+base_crews = st.sidebar.number_input("Base Crews", 1, value=2, key="base_crews")
+deadline_input = st.sidebar.date_input(
+    "Deadline (Span 7–21)",
+    value=max(dt.date(today.year, 4, 30), today),
+    min_value=today,
+    key="deadline_input",
+)
+
+# ---- Rates section (differs by page)
+if page == "Standard Projection (Manual Rates)":
+    st.sidebar.subheader("Production Rates (per day for 2 crews)")
+    stringers_rate = st.sidebar.number_input("Stringers rate", 0.1, value=16.0, key="stringers_rate")
+    cross_frames_rate = st.sidebar.number_input("Cross Frames rate", 0.1, value=10.0, key="cross_frames_rate")
+    cross_girders_rate = st.sidebar.number_input("Cross Girders rate", 0.1, value=1.5, key="cross_girders_rate")
+    portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0, key="portals_rate")
+else:
+    st.sidebar.subheader("Measured Rate Inputs")
+    days_measured_s1 = st.sidebar.number_input("Span 7–21 Days Measured", min_value=1, value=10, step=1, key="days_measured_s1")
+    days_measured_s2 = st.sidebar.number_input("Span 22–36B Days Measured", min_value=1, value=10, step=1, key="days_measured_s2")
+
+    # Rates derived from completed / days measured (per day for 2 crews)
+    stringers_rate = (c_s1 / days_measured_s1) if days_measured_s1 > 0 else 0.0
+    cross_frames_rate = (c_cf1 / days_measured_s1) if days_measured_s1 > 0 else 0.0
+    cross_girders_rate = (c_cg1 / days_measured_s1) if days_measured_s1 > 0 else 0.0
+    portals_rate = (c_p2 / days_measured_s2) if days_measured_s2 > 0 else 0.0
+
+    st.sidebar.markdown("**Derived Rates (per day for 2 crews)**")
+    st.sidebar.write(f"- Stringers: **{stringers_rate:.2f}**")
+    st.sidebar.write(f"- Cross Frames: **{cross_frames_rate:.2f}**")
+    st.sidebar.write(f"- Cross Girders: **{cross_girders_rate:.2f}**")
+    st.sidebar.write(f"- Portals: **{portals_rate:.2f}**")
+
+# ---- Temp windows (shared)
+st.sidebar.subheader("Temporary Crew Adjustment Windows")
+st.session_state.temp_enabled = st.sidebar.checkbox(
+    "Enable Temporary Crew Changes",
+    value=st.session_state.temp_enabled,
+    key="enable_temp",
+)
+
+if st.session_state.temp_enabled:
+    new_start = st.sidebar.date_input(
+        "New Window Start Date",
+        value=today,
+        min_value=today,
+        key="new_window_start",
+    )
+    new_end = st.sidebar.date_input(
+        "New Window End Date",
+        value=new_start,
+        min_value=new_start,  # end can't be before start
+        key="new_window_end",
+    )
+    new_crews = st.sidebar.number_input(
+        "Crews During New Window",
+        min_value=1,
+        value=3,
+        key="new_window_crews",
+    )
+
+    col1, col2 = st.sidebar.columns(2)
+    if col1.button("✅ Confirm / Add Window", key="add_window_btn"):
+        st.session_state.temp_windows.append({"start": new_start, "end": new_end, "crews": int(new_crews)})
+        st.rerun()
+
+    if col2.button("🔄 Reset All Windows", key="reset_all_windows_btn"):
+        st.session_state.temp_windows = []
+        st.rerun()
+
+    if st.session_state.temp_windows:
+        st.sidebar.markdown("**Active windows (last wins if overlapping):**")
+        for i, w in enumerate(st.session_state.temp_windows):
+            cols = st.sidebar.columns([6, 2])
+            cols[0].write(f"{i+1}) {w['start']} → {w['end']} | crews={w['crews']}")
+            if cols[1].button("❌", key=f"del_window_{i}"):
+                st.session_state.temp_windows.pop(i)
+                st.rerun()
+
+# =====================================================
+# REMAINING QUANTITIES (always)
+# =====================================================
+r_s1 = max(TOTALS_SPAN1["Stringers"] - c_s1, 0)
+r_cf1 = max(TOTALS_SPAN1["Cross Frames"] - c_cf1, 0)
+r_cg1 = max(TOTALS_SPAN1["Cross Girders"] - c_cg1, 0)
+
+r_s2 = max(TOTALS_SPAN2["Stringers"] - c_s2, 0)
+r_p2 = max(TOTALS_SPAN2["Portals"] - c_p2, 0)
+
+# =====================================================
+# TOTALS / COMPLETED / REMAINING (live, read-only)
+# =====================================================
+st.subheader("Totals / Completed / Remaining")
+
+colA, colB = st.columns(2)
+
+with colA:
+    st.markdown("### Span 7–21")
+    st.markdown("**Totals**")
+    t1, t2, t3 = st.columns(3)
+    t1.metric("Stringers", TOTALS_SPAN1["Stringers"])
+    t2.metric("Cross Frames", TOTALS_SPAN1["Cross Frames"])
+    t3.metric("Cross Girders", TOTALS_SPAN1["Cross Girders"])
+
+    st.markdown("**Completed**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Stringers", c_s1)
+    c2.metric("Cross Frames", c_cf1)
+    c3.metric("Cross Girders", c_cg1)
+
+    st.markdown("**Remaining**")
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Stringers", int(r_s1))
+    r2.metric("Cross Frames", int(r_cf1))
+    r3.metric("Cross Girders", int(r_cg1))
+
+with colB:
+    st.markdown("### Span 22–36B")
+    st.markdown("**Totals**")
+    t1, t2 = st.columns(2)
+    t1.metric("Stringers", TOTALS_SPAN2["Stringers"])
+    t2.metric("Portals", TOTALS_SPAN2["Portals"])
+
+    st.markdown("**Completed**")
+    c1, c2 = st.columns(2)
+    c1.metric("Stringers", c_s2)
+    c2.metric("Portals", c_p2)
+
+    st.markdown("**Remaining**")
+    r1, r2 = st.columns(2)
+    r1.metric("Stringers", int(r_s2))
+    r2.metric("Portals", int(r_p2))
+
+# =====================================================
+# RATES -> PER CREW (scheduler expects per-crew-per-day)
+# Inputs are "per day for 2 crews", so /2 = per crew.
+# =====================================================
+per_crew_rates_span1 = np.array([stringers_rate, cross_frames_rate, cross_girders_rate], dtype=float) / 2.0
+per_crew_rates_span2 = np.array([stringers_rate, portals_rate], dtype=float) / 2.0
+
+# =====================================================
+# RUN PROJECTIONS (same features on both pages)
 # =====================================================
 span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
 span1_dates, span1_curve, span1_completion, span1_finish_day = build_schedule(
@@ -286,6 +316,7 @@ span1_dates, span1_curve, span1_completion, span1_finish_day = build_schedule(
     [r_s1, r_cf1, r_cg1],
     per_crew_rates_span1,
     start_date,
+    base_crews=base_crews,
 )
 
 span1_finish_date = to_pydate(span1_finish_day)
@@ -296,7 +327,8 @@ span2_dates, span2_curve, span2_completion, span2_finish_day = build_schedule(
     span2_tasks,
     [r_s2, r_p2],
     per_crew_rates_span2,
-    span1_finish_day,
+    span1_finish_day,  # starts when span 1 finishes (date)
+    base_crews=base_crews,
 )
 
 span2_finish_date = to_pydate(span2_finish_day)
@@ -328,8 +360,8 @@ st.pyplot(
         span2_tasks,
         span2_completion,
         "Span 22–36B Production",
-        show_deadline=False,
+        show_deadline=False,   # no deadline line here
         deadline_date=None,
-        y_offset=span1_end_value,
+        y_offset=span1_end_value,  # starts at end point of Span 7–21 curve
     )
 )
