@@ -6,99 +6,140 @@ import datetime as dt
 st.set_page_config(page_title="FM Projections", layout="wide")
 st.title("📊 FM Projections - Production Timeline")
 
-# ==========================
+# =====================================================
 # DEFAULTS
-# ==========================
+# =====================================================
 default_span1 = {"Stringers": 852, "Cross Frames": 82, "Cross Girders": 22}
 default_span2 = {"Stringers": 1369, "Portals": 8}
 
-# ==========================
-# AUTO START DATE
-# ==========================
+# =====================================================
+# START DATE (BUSINESS DAY)
+# =====================================================
 today = dt.date.today()
 start_date = np.datetime64(today)
 if not np.is_busday(start_date):
-    start_date = np.busday_offset(start_date, 0, roll='forward')
+    start_date = np.busday_offset(start_date, 0, roll="forward")
 
-# ==========================
-# SIDEBAR QUANTITIES
-# ==========================
-st.sidebar.subheader("Span 7–21 Quantities (each)")
+# =====================================================
+# SIDEBAR INPUTS
+# =====================================================
+st.sidebar.subheader("Span 7–21 Quantities")
 
-for key, val in {
-    "Stringers_7_21": default_span1["Stringers"],
-    "Cross Frames_7_21": default_span1["Cross Frames"],
-    "Cross Girders_7_21": default_span1["Cross Girders"]
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+stringers_7_21 = st.sidebar.number_input(
+    "Stringers (7–21)", min_value=0, value=default_span1["Stringers"]
+)
+cross_frames_7_21 = st.sidebar.number_input(
+    "Cross Frames (7–21)", min_value=0, value=default_span1["Cross Frames"]
+)
+cross_girders_7_21 = st.sidebar.number_input(
+    "Cross Girders (7–21)", min_value=0, value=default_span1["Cross Girders"]
+)
 
-stringers_7_21 = st.sidebar.number_input("Stringers (7–21)", 0, key="Stringers_7_21")
-cross_frames_7_21 = st.sidebar.number_input("Cross Frames (7–21)", 0, key="Cross Frames_7_21")
-cross_girders_7_21 = st.sidebar.number_input("Cross Girders (7–21)", 0, key="Cross Girders_7_21")
+st.sidebar.subheader("Span 22–36B Quantities")
 
-st.sidebar.subheader("Span 22–36B Quantities (each)")
+stringers_22_36B = st.sidebar.number_input(
+    "Stringers (22–36B)", min_value=0, value=default_span2["Stringers"]
+)
+portals_22_36B = st.sidebar.number_input(
+    "Portals", min_value=0, value=default_span2["Portals"]
+)
 
-for key, val in {
-    "Stringers_22_36B": default_span2["Stringers"],
-    "Portals_22_36B": default_span2["Portals"]
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
-
-stringers_22_36B = st.sidebar.number_input("Stringers (22–36B)", 0, key="Stringers_22_36B")
-portals_22_36B = st.sidebar.number_input("Portals", 0, key="Portals_22_36B")
-
-# ==========================
-# PRODUCTION RATES
-# ==========================
+# =====================================================
+# RATES
+# =====================================================
 st.sidebar.subheader("Production Rates (per day for 2 crews)")
-stringers_rate = st.sidebar.number_input("Stringers rate", 0.1, value=16.0)
-cross_frames_rate = st.sidebar.number_input("Cross Frames rate", 0.1, value=10.0)
-cross_girders_rate = st.sidebar.number_input("Cross Girders rate", 0.1, value=1.5)
-portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0)
+stringers_rate = st.sidebar.number_input("Stringers rate", min_value=0.1, value=16.0)
+cross_frames_rate = st.sidebar.number_input("Cross Frames rate", min_value=0.1, value=10.0)
+cross_girders_rate = st.sidebar.number_input("Cross Girders rate", min_value=0.1, value=1.5)
+portals_rate = st.sidebar.number_input("Portals rate", min_value=0.1, value=2.0)
 
 rates_2_crews = np.array([stringers_rate, cross_frames_rate, cross_girders_rate, portals_rate])
 rate_per_crew = rates_2_crews / 2
 
-# ==========================
+# =====================================================
 # BASE CREWS
-# ==========================
-st.sidebar.subheader("Base Crew Configuration")
+# =====================================================
+st.sidebar.subheader("Base Crews")
 base_crews = st.sidebar.number_input("Base Number of Crews", min_value=1, value=2)
 
-# ==========================
+# =====================================================
 # DEADLINE
-# ==========================
-st.sidebar.subheader("Project Deadline")
+# =====================================================
+st.sidebar.subheader("Deadline")
 deadline_input = st.sidebar.date_input("Deadline Date", dt.date(today.year, 4, 30))
 deadline_date = np.datetime64(deadline_input)
 
-# ==========================
-# WINDOW IMPACT FUNCTION
-# ==========================
-def calculate_window_impact(start, end, base_crews, window_crews, rate_per_crew):
-    business_days = np.busday_count(start, end + np.timedelta64(1, 'D'))
-    base_total = np.sum(rate_per_crew) * base_crews * business_days
-    window_total = np.sum(rate_per_crew) * window_crews * business_days
-    return business_days, base_total, window_total, window_total - base_total
-
-# ==========================
-# TEMP WINDOWS
-# ==========================
+# =====================================================
+# TEMPORARY WINDOWS
+# =====================================================
 st.sidebar.subheader("Temporary Crew Windows")
-num_windows = st.sidebar.number_input("Number of Temporary Crew Windows", 0, 5, 0)
+num_windows = st.sidebar.number_input("Number of Windows", 0, 5, 0)
 
 if "confirmed_windows" not in st.session_state:
     st.session_state.confirmed_windows = {}
 
 crew_windows = []
 
+# =====================================================
+# WINDOW SIMULATION FUNCTION
+# =====================================================
+def simulate_window_production(tasks, quantities, rates, start_date,
+                               base_crews, window_crews,
+                               window_start, window_end):
+
+    def run_sim(crews_setting):
+        remaining = quantities.copy()
+        current_day = start_date
+        task_index = 0
+        production = {task: 0 for task in tasks}
+        finished_tasks = set()
+
+        while task_index < len(tasks):
+
+            if not np.is_busday(current_day):
+                current_day = np.busday_offset(current_day, 0, roll="forward")
+
+            if window_start <= current_day <= window_end:
+                crews_today = crews_setting
+            else:
+                crews_today = base_crews
+
+            daily_rate = rates[task_index] * crews_today
+            completed = min(daily_rate, remaining[task_index])
+            remaining[task_index] -= completed
+
+            if window_start <= current_day <= window_end:
+                production[tasks[task_index]] += completed
+
+            if remaining[task_index] <= 0:
+                if window_start <= current_day <= window_end:
+                    finished_tasks.add(tasks[task_index])
+                task_index += 1
+
+            current_day = np.busday_offset(current_day, 1)
+
+        return production, finished_tasks
+
+    base_prod, base_finished = run_sim(base_crews)
+    window_prod, window_finished = run_sim(window_crews)
+
+    return base_prod, base_finished, window_prod, window_finished
+
+# =====================================================
+# WINDOW INPUT LOOP
+# =====================================================
 for i in range(int(num_windows)):
+
     st.sidebar.markdown("---")
-    crews = st.sidebar.number_input(f"Crews During Window {i+1}", 1, value=base_crews+1, key=f"crews_{i}")
+    crews = st.sidebar.number_input(
+        f"Crews During Window {i+1}",
+        min_value=1,
+        value=base_crews + 1,
+        key=f"crews_{i}"
+    )
+
     start = st.sidebar.date_input(f"Start Date {i+1}", today, key=f"start_{i}")
-    end = st.sidebar.date_input(f"End Date {i+1}", today+dt.timedelta(days=14), key=f"end_{i}")
+    end = st.sidebar.date_input(f"End Date {i+1}", today + dt.timedelta(days=14), key=f"end_{i}")
 
     if st.sidebar.button(f"Confirm Window {i+1}", key=f"confirm_{i}"):
 
@@ -111,22 +152,54 @@ for i in range(int(num_windows)):
             "end": end_np
         }
 
-        bd, base_total, window_total, gain = calculate_window_impact(
-            start_np, end_np, base_crews, crews, rate_per_crew
+        tasks = ["Stringers", "Cross Frames", "Cross Girders"]
+        quantities = np.array([
+            stringers_7_21,
+            cross_frames_7_21,
+            cross_girders_7_21
+        ])
+        rates = rate_per_crew[:3]
+
+        base_prod, base_finished, window_prod, window_finished = simulate_window_production(
+            tasks,
+            quantities,
+            rates,
+            start_date,
+            base_crews,
+            crews,
+            start_np,
+            end_np
         )
 
         st.sidebar.success("✅ Window Confirmed")
-        st.sidebar.write(f"Business Days: {bd}")
-        st.sidebar.write(f"{base_crews} Crews: {int(base_total)} items")
-        st.sidebar.write(f"{crews} Crews: {int(window_total)} items")
-        st.sidebar.write(f"Net Gain: +{int(gain)} items")
+        st.sidebar.markdown("### 📊 Window Production Summary")
+
+        st.sidebar.markdown(f"#### With {base_crews} Crews")
+        for task in tasks:
+            amt = int(base_prod[task])
+            if amt > 0:
+                finished = " (FINISHED)" if task in base_finished else ""
+                st.sidebar.write(f"- {task}: {amt} items{finished}")
+
+        st.sidebar.markdown(f"#### With {crews} Crews")
+        for task in tasks:
+            amt = int(window_prod[task])
+            if amt > 0:
+                finished = " (FINISHED)" if task in window_finished else ""
+                st.sidebar.write(f"- {task}: {amt} items{finished}")
+
+        st.sidebar.markdown("#### 🚀 Net Gain")
+        for task in tasks:
+            gain = int(window_prod[task] - base_prod[task])
+            if gain > 0:
+                st.sidebar.write(f"+{gain} {task}")
 
 for w in st.session_state.confirmed_windows.values():
     crew_windows.append(w)
 
-# ==========================
+# =====================================================
 # CREW LOOKUP
-# ==========================
+# =====================================================
 def get_crews_for_day(day):
     crews_today = base_crews
     for w in crew_windows:
@@ -134,9 +207,9 @@ def get_crews_for_day(day):
             crews_today = w["crews"]
     return crews_today
 
-# ==========================
+# =====================================================
 # SCHEDULER
-# ==========================
+# =====================================================
 def build_schedule(tasks, quantities, rates, start_date):
     remaining = quantities.copy()
     cumulative = [0]
@@ -148,7 +221,7 @@ def build_schedule(tasks, quantities, rates, start_date):
     while task_index < len(tasks):
 
         if not np.is_busday(current_day):
-            current_day = np.busday_offset(current_day, 0, roll='forward')
+            current_day = np.busday_offset(current_day, 0, roll="forward")
 
         crews_today = get_crews_for_day(current_day)
         daily_rate = rates[task_index] * crews_today
@@ -166,9 +239,9 @@ def build_schedule(tasks, quantities, rates, start_date):
 
     return dates, cumulative, completion_dates
 
-# ==========================
-# SPAN 1
-# ==========================
+# =====================================================
+# SPAN 7–21
+# =====================================================
 span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
 span1_quantities = np.array([stringers_7_21, cross_frames_7_21, cross_girders_7_21])
 
@@ -181,9 +254,9 @@ span1_dates, span1_curve, span1_completion = build_schedule(
 
 span1_finish = span1_completion[-1]
 
-# ==========================
-# SPAN 2
-# ==========================
+# =====================================================
+# SPAN 22–36B
+# =====================================================
 span2_tasks = ["Stringers", "Portals"]
 span2_quantities = np.array([stringers_22_36B, portals_22_36B])
 
@@ -196,24 +269,27 @@ span2_dates, span2_curve, span2_completion = build_schedule(
 
 span2_finish = span2_completion[-1]
 
-# ==========================
-# PLOT FUNCTION (RESTORED)
-# ==========================
+# =====================================================
+# PLOT FUNCTION
+# =====================================================
 def plot_span(dates, curve, tasks, completion_dates, title):
+
     fig, ax = plt.subplots(figsize=(15,6))
     ax.plot(dates, curve, linewidth=3)
 
-    # Deadline
     ax.axvline(deadline_date, color="red", linewidth=3)
 
-    # Completion lines
     colors = ["green", "orange", "purple", "blue"]
+
     for task, comp, color in zip(tasks, completion_dates, colors):
         ax.axvline(comp, linestyle="--", color=color)
-        ax.text(comp, max(curve)*0.05, f"{task}\n{comp}",
-                rotation=90, fontsize=9, color=color, fontweight="bold")
+        ax.text(comp, max(curve)*0.05,
+                f"{task}\n{comp}",
+                rotation=90,
+                fontsize=9,
+                color=color,
+                fontweight="bold")
 
-    # Start / Finish
     ax.scatter(dates[0], curve[0], s=120, color="black")
     ax.scatter(completion_dates[-1], curve[-1], s=120, color="black")
 
@@ -222,11 +298,12 @@ def plot_span(dates, curve, tasks, completion_dates, title):
     ax.set_xlabel("Date")
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
+
     return fig
 
-# ==========================
+# =====================================================
 # DISPLAY
-# ==========================
+# =====================================================
 st.subheader("Span 7–21 Production Timeline")
 st.pyplot(plot_span(span1_dates, span1_curve, span1_tasks, span1_completion,
                     "Span 7–21 Production Timeline"))
