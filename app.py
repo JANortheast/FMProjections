@@ -54,10 +54,8 @@ with tab1:
     rates_2_crews = np.array([stringers_rate, cross_frames_rate, cross_girders_rate, portals_rate])
     rate_per_crew = rates_2_crews / 2
 
-    # --- Base crews ---
     base_crews = st.sidebar.number_input("Base Crews [Tab 1]", 1, value=2)
 
-    # --- Deadline ---
     deadline_input = st.sidebar.date_input("Deadline [Tab 1]", dt.date(today.year, 4, 30))
     deadline_date = np.datetime64(deadline_input)
 
@@ -68,7 +66,6 @@ with tab1:
     r_s2 = max(TOTALS_SPAN2["Stringers"] - c_s2 - stringers_rate*days_worked_s2/2, 0)
     r_p2 = max(TOTALS_SPAN2["Portals"] - c_p2 - portals_rate*days_worked_s2/2, 0)
 
-    # --- Scheduler ---
     def build_schedule(tasks, quantities, rates, start_date):
         remaining = quantities.copy()
         cumulative = [0]
@@ -76,7 +73,6 @@ with tab1:
         completion_dates = []
         current_day = start_date
         task_index = 0
-
         while task_index < len(tasks) and sum(remaining) > 0:
             if not np.is_busday(current_day):
                 current_day = np.busday_offset(current_day, 0, roll="forward")
@@ -103,7 +99,6 @@ with tab1:
     span2_dates, span2_curve, span2_completion = build_schedule(span2_tasks, span2_quantities, np.array([rate_per_crew[0], rate_per_crew[3]]), span1_finish)
     span2_finish = span2_completion[-1] if span2_completion else span1_finish
 
-    # --- Plotting function ---
     def plot_span(dates, curve, tasks, completion_dates, title, show_deadline):
         fig, ax = plt.subplots(figsize=(15,6))
         ax.plot(dates, curve, linewidth=3)
@@ -131,7 +126,6 @@ with tab1:
 with tab2:
     st.subheader("Rate-Based Projection")
 
-    # --- Sidebar inputs for Tab 2 ---
     st.sidebar.subheader("Tab 2: Days Measured")
     days_measured_s1 = st.sidebar.number_input("Span 7–21 Days Measured [Tab 2]", 0, 365, 1)
     days_measured_s2 = st.sidebar.number_input("Span 22–36B Days Measured [Tab 2]", 0, 365, 1)
@@ -140,11 +134,10 @@ with tab2:
     completed_s1 = st.sidebar.number_input("Span 7–21 Total Completed Units [Tab 2]", 0, sum(TOTALS_SPAN1.values()), 0)
     completed_s2 = st.sidebar.number_input("Span 22–36B Total Completed Units [Tab 2]", 0, sum(TOTALS_SPAN2.values()), 0)
 
-    # --- Calculate rates per day from measurements ---
-    avg_rate_s1 = completed_s1 / days_measured_s1 if days_measured_s1>0 else 0.1
-    avg_rate_s2 = completed_s2 / days_measured_s2 if days_measured_s2>0 else 0.1
+    # --- Calculate average daily rate ---
+    avg_rate_s1 = completed_s1 / max(days_measured_s1, 1)
+    avg_rate_s2 = completed_s2 / max(days_measured_s2, 1)
 
-    # --- Scheduler using rate per task proportionally ---
     def build_rate_schedule(total_qty, avg_rate, start_date):
         remaining = total_qty
         cumulative = [0]
@@ -160,21 +153,17 @@ with tab2:
             dates.append(current_day)
         return dates, cumulative
 
-    # --- Span 7–21 ---
     span1_total = sum(TOTALS_SPAN1.values())
     span1_dates2, span1_curve2 = build_rate_schedule(span1_total, avg_rate_s1, start_date)
     span1_finish2 = span1_dates2[-1]
 
-    # --- Span 22–36B ---
     span2_total = sum(TOTALS_SPAN2.values())
     span2_dates2, span2_curve2 = build_rate_schedule(span2_total, avg_rate_s2, span1_finish2)
-    span2_finish2 = span2_dates2[-1]
 
-    # --- Plot ---
     fig, ax = plt.subplots(figsize=(15,6))
     ax.plot(span1_dates2, span1_curve2, label="Span 7–21", linewidth=3)
     ax.plot(span2_dates2, span2_curve2, label="Span 22–36B", linewidth=3)
-    ax.axvline(deadline_date, color="red", linewidth=3)
+    ax.axvline(np.datetime64(deadline_input), color="red", linewidth=3)
     ax.set_title("Rate-Based Projection", fontweight="bold")
     ax.set_ylabel("Items Completed")
     ax.set_xlabel("Date")
