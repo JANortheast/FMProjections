@@ -23,24 +23,20 @@ if not np.is_busday(start_date):
 # =====================================================
 # COMPLETED INPUTS
 # =====================================================
-st.sidebar.subheader("Span 7–21 Completed")
-
+st.sidebar.subheader("Span 7–21 Completed / Days Worked")
+days_worked_s1 = st.sidebar.number_input(
+    "Days Worked by 2 Crews (Span 7–21)", 0, 365, 0
+)
 c_s1 = st.sidebar.number_input("Stringers Completed (7–21)", 0, TOTALS_SPAN1["Stringers"], 0)
 c_cf1 = st.sidebar.number_input("Cross Frames Completed (7–21)", 0, TOTALS_SPAN1["Cross Frames"], 0)
 c_cg1 = st.sidebar.number_input("Cross Girders Completed (7–21)", 0, TOTALS_SPAN1["Cross Girders"], 0)
 
-st.sidebar.subheader("Span 22–36B Completed")
-
+st.sidebar.subheader("Span 22–36B Completed / Days Worked")
+days_worked_s2 = st.sidebar.number_input(
+    "Days Worked by 2 Crews (Span 22–36B)", 0, 365, 0
+)
 c_s2 = st.sidebar.number_input("Stringers Completed (22–36B)", 0, TOTALS_SPAN2["Stringers"], 0)
 c_p2 = st.sidebar.number_input("Portals Completed", 0, TOTALS_SPAN2["Portals"], 0)
-
-# Remaining
-r_s1 = TOTALS_SPAN1["Stringers"] - c_s1
-r_cf1 = TOTALS_SPAN1["Cross Frames"] - c_cf1
-r_cg1 = TOTALS_SPAN1["Cross Girders"] - c_cg1
-
-r_s2 = TOTALS_SPAN2["Stringers"] - c_s2
-r_p2 = TOTALS_SPAN2["Portals"] - c_p2
 
 # =====================================================
 # RATES
@@ -76,13 +72,9 @@ if "confirmed_windows" not in st.session_state:
 num_windows = st.sidebar.number_input("Number of Windows", 0, 5, 0)
 
 for i in range(int(num_windows)):
-
     st.sidebar.markdown("---")
     crews = st.sidebar.number_input(
-        f"Crews During Window {i+1}",
-        1,
-        value=base_crews + 1,
-        key=f"crews_{i}"
+        f"Crews During Window {i+1}", 1, value=base_crews + 1, key=f"crews_{i}"
     )
     start = st.sidebar.date_input(f"Start Date {i+1}", today, key=f"start_{i}")
     end = st.sidebar.date_input(f"End Date {i+1}", today + dt.timedelta(days=14), key=f"end_{i}")
@@ -141,6 +133,27 @@ def build_schedule(tasks, quantities, rates, start_date):
     return dates, cumulative, completion_dates
 
 # =====================================================
+# ADJUST QUANTITIES BASED ON DAYS WORKED
+# =====================================================
+def apply_days_worked(completed, rates, days):
+    return max(completed - (rates * days).sum(), 0)
+
+# Remaining quantities after days worked
+r_s1 -= stringers_rate * days_worked_s1 / 2
+r_cf1 -= cross_frames_rate * days_worked_s1 / 2
+r_cg1 -= cross_girders_rate * days_worked_s1 / 2
+
+r_s1 = max(r_s1, 0)
+r_cf1 = max(r_cf1, 0)
+r_cg1 = max(r_cg1, 0)
+
+r_s2 -= stringers_rate * days_worked_s2 / 2
+r_p2 -= portals_rate * days_worked_s2 / 2
+
+r_s2 = max(r_s2, 0)
+r_p2 = max(r_p2, 0)
+
+# =====================================================
 # BUILD SPAN 7–21
 # =====================================================
 span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
@@ -178,7 +191,6 @@ def get_windows_for_span(span_start, span_end):
     span_windows = []
 
     for w in crew_windows:
-
         if w["end"] < span_start or w["start"] > span_end:
             continue
 
@@ -203,7 +215,7 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline):
     # Only show confirmed + applicable windows
     span_windows = get_windows_for_span(span_start, span_end)
     for w in span_windows:
-        ax.axvspan(w["start"], w["end"], alpha=0.15)
+        ax.axvspan(w["start"], w["end"], alpha=0.15, color="blue")
 
     if show_deadline:
         ax.axvline(deadline_date, color="red", linewidth=3)
