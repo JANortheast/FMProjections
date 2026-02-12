@@ -142,6 +142,31 @@ r_cg1 = max(TOTALS_SPAN1["Cross Girders"] - c_cg1, 0)
 r_s2 = max(TOTALS_SPAN2["Stringers"] - c_s2, 0)
 r_p2 = max(TOTALS_SPAN2["Portals"] - c_p2, 0)
 
+# =====================================================
+# DISPLAY TOTALS + REMAINING (NOT EDITABLE)
+# =====================================================
+st.subheader("Totals & Remaining (Read-Only)")
+
+colA, colB = st.columns(2)
+
+with colA:
+    st.markdown("### Span 7–21")
+    st.text_input("Total Stringers (7–21)", value=str(TOTALS_SPAN1["Stringers"]), disabled=True, key="tot_s1")
+    st.text_input("Total Cross Frames (7–21)", value=str(TOTALS_SPAN1["Cross Frames"]), disabled=True, key="tot_cf1")
+    st.text_input("Total Cross Girders (7–21)", value=str(TOTALS_SPAN1["Cross Girders"]), disabled=True, key="tot_cg1")
+
+    st.text_input("Remaining Stringers (7–21)", value=str(int(r_s1)), disabled=True, key="rem_s1")
+    st.text_input("Remaining Cross Frames (7–21)", value=str(int(r_cf1)), disabled=True, key="rem_cf1")
+    st.text_input("Remaining Cross Girders (7–21)", value=str(int(r_cg1)), disabled=True, key="rem_cg1")
+
+with colB:
+    st.markdown("### Span 22–36B")
+    st.text_input("Total Stringers (22–36B)", value=str(TOTALS_SPAN2["Stringers"]), disabled=True, key="tot_s2")
+    st.text_input("Total Portals (22–36B)", value=str(TOTALS_SPAN2["Portals"]), disabled=True, key="tot_p2")
+
+    st.text_input("Remaining Stringers (22–36B)", value=str(int(r_s2)), disabled=True, key="rem_s2")
+    st.text_input("Remaining Portals (22–36B)", value=str(int(r_p2)), disabled=True, key="rem_p2")
+
 # Convert rates to per-crew (inputs are per day for 2 crews)
 per_crew_rates_span1 = np.array([stringers_rate, cross_frames_rate, cross_girders_rate], dtype=float) / 2.0
 per_crew_rates_span2 = np.array([stringers_rate, portals_rate], dtype=float) / 2.0
@@ -174,7 +199,7 @@ def build_schedule(tasks, quantities, per_crew_rates, start_dt64):
             completion_dates.append(current_day)
             task_index += 1
 
-        finish_day = current_day  # last day we actually worked
+        finish_day = current_day
         current_day = np.busday_offset(current_day, 1)
         dates.append(current_day)
 
@@ -252,13 +277,13 @@ span2_dates, span2_curve, span2_completion, span2_finish_day = build_schedule(
     span2_tasks,
     [r_s2, r_p2],
     per_crew_rates_span2,
-    span1_finish_day,  # starts when span 1 finishes
+    span1_finish_day,
 )
 
 span2_finish_date = to_pydate(span2_finish_day)
 
 # =====================================================
-# DISPLAY (show finish dates so you SEE the temp impact)
+# DISPLAY (finish dates + graphs)
 # =====================================================
 st.subheader("Span 7–21 Projection")
 st.write(f"**Projected finish (Span 7–21):** {span1_finish_date.strftime('%m/%d/%Y')}")
