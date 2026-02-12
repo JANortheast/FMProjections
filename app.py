@@ -51,7 +51,14 @@ cross_girders_rate = st.sidebar.number_input("Cross Girders rate", 0.1, value=1.
 portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0, key="portals_rate")
 
 base_crews = st.sidebar.number_input("Base Crews", 1, value=2, key="base_crews")
-deadline_input = st.sidebar.date_input("Deadline (Span 7–21)", dt.date(today.year, 4, 30), key="deadline_input")
+
+# Deadline cannot be before today
+deadline_input = st.sidebar.date_input(
+    "Deadline (Span 7–21)",
+    value=max(dt.date(today.year, 4, 30), today),
+    min_value=today,
+    key="deadline_input"
+)
 
 # =====================================================
 # TEMP CREW ADJUSTMENT WINDOW (confirm + reset)
@@ -61,29 +68,31 @@ st.sidebar.subheader("Temporary Crew Adjustment Window")
 enable_temp = st.sidebar.checkbox("Enable Temporary Crew Change", key="enable_temp")
 
 if enable_temp:
+    # Enforce: start >= today
     temp_start_ui = st.sidebar.date_input(
         "Change Start Date",
-        st.session_state.temp_start,
+        value=max(st.session_state.temp_start, today),
+        min_value=today,
         key="temp_start_ui",
     )
+
+    # Enforce: end >= start (and therefore >= today)
     temp_end_ui = st.sidebar.date_input(
         "Change End Date",
-        st.session_state.temp_end,
+        value=max(st.session_state.temp_end, temp_start_ui),
+        min_value=temp_start_ui,
         key="temp_end_ui",
     )
+
     temp_crews_ui = st.sidebar.number_input(
         "Crews During Window",
-        1,
+        min_value=1,
         value=int(st.session_state.temp_crews),
         key="temp_crews_ui",
     )
 
     colA, colB = st.sidebar.columns(2)
     if colA.button("✅ Confirm", key="confirm_temp"):
-        # Normalize if user swapped dates
-        if temp_end_ui < temp_start_ui:
-            temp_start_ui, temp_end_ui = temp_end_ui, temp_start_ui
-
         st.session_state.temp_start = temp_start_ui
         st.session_state.temp_end = temp_end_ui
         st.session_state.temp_crews = int(temp_crews_ui)
@@ -94,7 +103,6 @@ if enable_temp:
         st.session_state.temp_applied = False
         st.rerun()
 else:
-    # If user turns off temp mode, wipe it from the graphs/schedule immediately
     if st.session_state.temp_applied:
         st.session_state.temp_applied = False
         st.rerun()
@@ -112,7 +120,6 @@ def to_pydate(d):
     return dt.date.fromisoformat(str(np.datetime64(d, "D")))
 
 def overlap_window(x_min, x_max, w_start, w_end):
-    """Returns the overlap interval [a,b] if overlaps else None."""
     a = max(x_min, w_start)
     b = min(x_max, w_end)
     if a <= b:
@@ -145,7 +152,6 @@ def build_schedule(tasks, quantities, per_crew_rates, start_dt64):
     current_day = ensure_busday(start_dt64)
     task_index = 0
 
-    # Temp window settings (only if confirmed/applied)
     temp_on = bool(st.session_state.temp_applied)
     w_start = st.session_state.temp_start if temp_on else None
     w_end = st.session_state.temp_end if temp_on else None
@@ -184,7 +190,6 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False,
     fig, ax = plt.subplots(figsize=(15, 6))
     ax.plot(x, y, linewidth=3)
 
-    # Shade temp window only if confirmed + overlaps the plot's date range
     if st.session_state.temp_applied:
         w_start = st.session_state.temp_start
         w_end = st.session_state.temp_end
@@ -203,9 +208,8 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False,
             )
 
     colors = ["green", "orange", "purple", "blue"]
-
-    # Completion vertical lines + single-line labels
     label_y = (max(y) * 0.1) if max(y) > 0 else 0.0
+
     for task, comp, color in zip(tasks, completion_dates, colors):
         comp_py = to_pydate(comp)
         ax.axvline(comp_py, linestyle="--", color=color)
@@ -233,7 +237,6 @@ def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False,
 # =====================================================
 # RUN PROJECTIONS
 # =====================================================
-# Span 7–21
 span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
 span1_dates, span1_curve, span1_completion = build_schedule(
     span1_tasks,
@@ -242,11 +245,9 @@ span1_dates, span1_curve, span1_completion = build_schedule(
     start_date,
 )
 
-# End point / finish date for Span 7–21
 span1_finish_date = span1_completion[-1] if span1_completion else ensure_busday(start_date)
-span1_end_value = span1_curve[-1] if len(span1_curve) else 0.0  # items completed on span 1 plot
+span1_end_value = span1_curve[-1] if len(span1_curve) else 0.0
 
-# Span 22–36B starts at the ending point/date of Span 7–21
 span2_tasks = ["Stringers", "Portals"]
 span2_dates, span2_curve, span2_completion = build_schedule(
     span2_tasks,
@@ -280,8 +281,8 @@ st.pyplot(
         span2_tasks,
         span2_completion,
         "Span 22–36B Production",
-        show_deadline=False,     # ✅ deadline line removed here
+        show_deadline=False,
         deadline_date=None,
-        y_offset=span1_end_value # ✅ starts at end point of Span 7–21 curve
+        y_offset=span1_end_value,
     )
 )
