@@ -152,47 +152,7 @@ for i in range(int(num_windows)):
             "end": end_np
         }
 
-        tasks = ["Stringers", "Cross Frames", "Cross Girders"]
-        quantities = np.array([
-            stringers_7_21,
-            cross_frames_7_21,
-            cross_girders_7_21
-        ])
-        rates = rate_per_crew[:3]
-
-        base_prod, base_finished, window_prod, window_finished = simulate_window_production(
-            tasks,
-            quantities,
-            rates,
-            start_date,
-            base_crews,
-            crews,
-            start_np,
-            end_np
-        )
-
         st.sidebar.success("✅ Window Confirmed")
-        st.sidebar.markdown("### 📊 Window Production Summary")
-
-        st.sidebar.markdown(f"#### With {base_crews} Crews")
-        for task in tasks:
-            amt = int(base_prod[task])
-            if amt > 0:
-                finished = " (FINISHED)" if task in base_finished else ""
-                st.sidebar.write(f"- {task}: {amt} items{finished}")
-
-        st.sidebar.markdown(f"#### With {crews} Crews")
-        for task in tasks:
-            amt = int(window_prod[task])
-            if amt > 0:
-                finished = " (FINISHED)" if task in window_finished else ""
-                st.sidebar.write(f"- {task}: {amt} items{finished}")
-
-        st.sidebar.markdown("#### 🚀 Net Gain")
-        for task in tasks:
-            gain = int(window_prod[task] - base_prod[task])
-            if gain > 0:
-                st.sidebar.write(f"+{gain} {task}")
 
 for w in st.session_state.confirmed_windows.values():
     crew_windows.append(w)
@@ -272,12 +232,13 @@ span2_finish = span2_completion[-1]
 # =====================================================
 # PLOT FUNCTION
 # =====================================================
-def plot_span(dates, curve, tasks, completion_dates, title):
+def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=True):
 
     fig, ax = plt.subplots(figsize=(15,6))
     ax.plot(dates, curve, linewidth=3)
 
-    ax.axvline(deadline_date, color="red", linewidth=3)
+    if show_deadline:
+        ax.axvline(deadline_date, color="red", linewidth=3)
 
     colors = ["green", "orange", "purple", "blue"]
 
@@ -305,12 +266,24 @@ def plot_span(dates, curve, tasks, completion_dates, title):
 # DISPLAY
 # =====================================================
 st.subheader("Span 7–21 Production Timeline")
-st.pyplot(plot_span(span1_dates, span1_curve, span1_tasks, span1_completion,
-                    "Span 7–21 Production Timeline"))
+st.pyplot(plot_span(
+    span1_dates,
+    span1_curve,
+    span1_tasks,
+    span1_completion,
+    "Span 7–21 Production Timeline",
+    show_deadline=True
+))
 
 st.subheader("Span 22–36B Production Timeline")
-st.pyplot(plot_span(span2_dates, span2_curve, span2_tasks, span2_completion,
-                    "Span 22–36B Production Timeline"))
+st.pyplot(plot_span(
+    span2_dates,
+    span2_curve,
+    span2_tasks,
+    span2_completion,
+    "Span 22–36B Production Timeline",
+    show_deadline=False
+))
 
 st.sidebar.markdown("---")
 st.sidebar.write(f"Span 7–21 Finish: {span1_finish}")
