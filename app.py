@@ -133,7 +133,7 @@ def crews_for_date(day: dt.date, base: int) -> int:
     return crews
 
 # =====================================================
-# REMAINING QUANTITIES
+# REMAINING QUANTITIES (updates immediately)
 # =====================================================
 r_s1 = max(TOTALS_SPAN1["Stringers"] - c_s1, 0)
 r_cf1 = max(TOTALS_SPAN1["Cross Frames"] - c_cf1, 0)
@@ -143,29 +143,48 @@ r_s2 = max(TOTALS_SPAN2["Stringers"] - c_s2, 0)
 r_p2 = max(TOTALS_SPAN2["Portals"] - c_p2, 0)
 
 # =====================================================
-# DISPLAY TOTALS + REMAINING (NOT EDITABLE)
+# DISPLAY TOTALS + COMPLETED + REMAINING (READ-ONLY + LIVE)
 # =====================================================
-st.subheader("Totals & Remaining (Read-Only)")
+st.subheader("Totals / Completed / Remaining")
 
 colA, colB = st.columns(2)
 
 with colA:
     st.markdown("### Span 7–21")
-    st.text_input("Total Stringers (7–21)", value=str(TOTALS_SPAN1["Stringers"]), disabled=True, key="tot_s1")
-    st.text_input("Total Cross Frames (7–21)", value=str(TOTALS_SPAN1["Cross Frames"]), disabled=True, key="tot_cf1")
-    st.text_input("Total Cross Girders (7–21)", value=str(TOTALS_SPAN1["Cross Girders"]), disabled=True, key="tot_cg1")
+    st.markdown("**Totals**")
+    t1, t2, t3 = st.columns(3)
+    t1.metric("Stringers", TOTALS_SPAN1["Stringers"])
+    t2.metric("Cross Frames", TOTALS_SPAN1["Cross Frames"])
+    t3.metric("Cross Girders", TOTALS_SPAN1["Cross Girders"])
 
-    st.text_input("Remaining Stringers (7–21)", value=str(int(r_s1)), disabled=True, key="rem_s1")
-    st.text_input("Remaining Cross Frames (7–21)", value=str(int(r_cf1)), disabled=True, key="rem_cf1")
-    st.text_input("Remaining Cross Girders (7–21)", value=str(int(r_cg1)), disabled=True, key="rem_cg1")
+    st.markdown("**Completed**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Stringers", c_s1)
+    c2.metric("Cross Frames", c_cf1)
+    c3.metric("Cross Girders", c_cg1)
+
+    st.markdown("**Remaining**")
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Stringers", int(r_s1))
+    r2.metric("Cross Frames", int(r_cf1))
+    r3.metric("Cross Girders", int(r_cg1))
 
 with colB:
     st.markdown("### Span 22–36B")
-    st.text_input("Total Stringers (22–36B)", value=str(TOTALS_SPAN2["Stringers"]), disabled=True, key="tot_s2")
-    st.text_input("Total Portals (22–36B)", value=str(TOTALS_SPAN2["Portals"]), disabled=True, key="tot_p2")
+    st.markdown("**Totals**")
+    t1, t2 = st.columns(2)
+    t1.metric("Stringers", TOTALS_SPAN2["Stringers"])
+    t2.metric("Portals", TOTALS_SPAN2["Portals"])
 
-    st.text_input("Remaining Stringers (22–36B)", value=str(int(r_s2)), disabled=True, key="rem_s2")
-    st.text_input("Remaining Portals (22–36B)", value=str(int(r_p2)), disabled=True, key="rem_p2")
+    st.markdown("**Completed**")
+    c1, c2 = st.columns(2)
+    c1.metric("Stringers", c_s2)
+    c2.metric("Portals", c_p2)
+
+    st.markdown("**Remaining**")
+    r1, r2 = st.columns(2)
+    r1.metric("Stringers", int(r_s2))
+    r2.metric("Portals", int(r_p2))
 
 # Convert rates to per-crew (inputs are per day for 2 crews)
 per_crew_rates_span1 = np.array([stringers_rate, cross_frames_rate, cross_girders_rate], dtype=float) / 2.0
