@@ -12,6 +12,9 @@ st.title("📊 FM Projections - Production Timeline")
 TOTALS_SPAN1 = {"Stringers": 1023, "Cross Frames": 130, "Cross Girders": 28}
 TOTALS_SPAN2 = {"Stringers": 2429, "Portals": 16}
 
+# =====================================================
+# START DATE (BUSINESS DAY)
+# =====================================================
 today = dt.date.today()
 start_date = np.datetime64(today)
 if not np.is_busday(start_date):
@@ -25,6 +28,7 @@ sidebar_tab = st.sidebar.radio("Select Sidebar Tab", ["Tab 1 Inputs", "Tab 2 Inp
 # =====================================================
 # -------- SIDEBAR INPUTS --------
 # =====================================================
+# --- Tab 1 Inputs ---
 if sidebar_tab == "Tab 1 Inputs":
     st.sidebar.subheader("Span 7–21 Completed [Tab 1]")
     c_s1 = st.sidebar.number_input("Stringers Completed (7–21)", 0, TOTALS_SPAN1["Stringers"], 0)
@@ -46,9 +50,10 @@ if sidebar_tab == "Tab 1 Inputs":
     portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0)
 
     base_crews = st.sidebar.number_input("Base Crews", 1, value=2)
-    deadline_input = st.sidebar.date_input("Deadline", dt.date(today.year, 4, 30))
+    deadline_input = st.sidebar.date_input("Deadline [Tab 1]", dt.date(today.year, 4, 30))
 
-elif sidebar_tab == "Tab 2 Inputs":
+# --- Tab 2 Inputs ---
+if sidebar_tab == "Tab 2 Inputs":
     st.sidebar.subheader("Rate-Based Projection Days & Completion [Tab 2]")
     days_measured_s1 = st.sidebar.number_input("Span 7–21 Days Measured", 0, 365, 1)
     days_measured_s2 = st.sidebar.number_input("Span 22–36B Days Measured", 0, 365, 1)
@@ -57,6 +62,28 @@ elif sidebar_tab == "Tab 2 Inputs":
     completed_s2 = st.sidebar.number_input("Span 22–36B Completed Units", 0, sum(TOTALS_SPAN2.values()), 0)
 
     deadline_input_tab2 = st.sidebar.date_input("Deadline [Tab 2]", dt.date(today.year, 4, 30))
+
+# =====================================================
+# --- Ensure Tab 2 variables exist even if sidebar on Tab 1 ---
+# =====================================================
+days_measured_s1 = days_measured_s1 if 'days_measured_s1' in locals() else 1
+days_measured_s2 = days_measured_s2 if 'days_measured_s2' in locals() else 1
+completed_s1 = completed_s1 if 'completed_s1' in locals() else 0
+completed_s2 = completed_s2 if 'completed_s2' in locals() else 0
+deadline_input_tab2 = deadline_input_tab2 if 'deadline_input_tab2' in locals() else dt.date(today.year, 4, 30)
+c_s1 = c_s1 if 'c_s1' in locals() else 0
+c_cf1 = c_cf1 if 'c_cf1' in locals() else 0
+c_cg1 = c_cg1 if 'c_cg1' in locals() else 0
+c_s2 = c_s2 if 'c_s2' in locals() else 0
+c_p2 = c_p2 if 'c_p2' in locals() else 0
+days_worked_s1 = days_worked_s1 if 'days_worked_s1' in locals() else 0
+days_worked_s2 = days_worked_s2 if 'days_worked_s2' in locals() else 0
+stringers_rate = stringers_rate if 'stringers_rate' in locals() else 16.0
+cross_frames_rate = cross_frames_rate if 'cross_frames_rate' in locals() else 10.0
+cross_girders_rate = cross_girders_rate if 'cross_girders_rate' in locals() else 1.5
+portals_rate = portals_rate if 'portals_rate' in locals() else 2.0
+base_crews = base_crews if 'base_crews' in locals() else 2
+deadline_input = deadline_input if 'deadline_input' in locals() else dt.date(today.year,4,30)
 
 # =====================================================
 # -------- MAIN TABS ---------------
@@ -97,13 +124,17 @@ with tab1:
     # Build and plot span 7–21
     span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
     span1_quantities = np.array([r_s1, r_cf1, r_cg1])
-    span1_dates, span1_curve, span1_completion = build_schedule(span1_tasks, span1_quantities, np.array([stringers_rate/2, cross_frames_rate/2, cross_girders_rate/2]), start_date)
+    span1_dates, span1_curve, span1_completion = build_schedule(
+        span1_tasks, span1_quantities, np.array([stringers_rate/2, cross_frames_rate/2, cross_girders_rate/2]), start_date
+    )
     span1_finish = span1_completion[-1] if span1_completion else start_date
 
     # Build and plot span 22–36B
     span2_tasks = ["Stringers", "Portals"]
     span2_quantities = np.array([r_s2, r_p2])
-    span2_dates, span2_curve, span2_completion = build_schedule(span2_tasks, np.array([r_s2, r_p2]), np.array([stringers_rate/2, portals_rate/2]), span1_finish)
+    span2_dates, span2_curve, span2_completion = build_schedule(
+        span2_tasks, span2_quantities, np.array([stringers_rate/2, portals_rate/2]), span1_finish
+    )
     span2_finish = span2_completion[-1] if span2_completion else span1_finish
 
     def plot_span(dates, curve, tasks, completion_dates, title, show_deadline):
