@@ -1,16 +1,14 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime
 import matplotlib.dates as mdates
 
 st.set_page_config(layout="wide")
 
-# ==========================================================
-# DATA
-# ==========================================================
-
-start_date = np.datetime64("2026-05-01")
-deadline_span1 = np.datetime64("2026-07-01")
+# =========================
+# TASK DATA
+# =========================
 
 tasks_span1 = [
     "Span 7-21 Stringers",
@@ -27,13 +25,14 @@ tasks_span2 = [
 
 quantities_span2 = [694, 24]
 
-# Production per crew per day
-rates_span1 = [8, 4, 1.5]
-rates_span2 = [8, 1]
+rate_per_crew = np.array([8, 4, 1.5, 8, 1])  # per crew production rates
 
-# ==========================================================
-# SIDEBAR CONTROLS
-# ==========================================================
+start_date = np.datetime64("2026-05-01")
+deadline_span1 = np.datetime64("2026-07-01")
+
+# =========================
+# SIDEBAR INPUTS
+# =========================
 
 st.sidebar.title("Production Controls")
 
@@ -46,74 +45,96 @@ if use_window:
     window_start = np.datetime64(st.sidebar.date_input("Window Start"))
     window_end = np.datetime64(st.sidebar.date_input("Window End"))
 
-# ==========================================================
-# PRODUCTION CURVE BUILDER
-# ==========================================================
+# =========================
+# BUILD CUMULATIVE CURVE
+# =========================
 
-def build_curve(tasks, quantities, rates):
-
+def build_curve(tasks, quantities, rates, crews):
     cumulative = []
-    dates = []
     task_finish_dates = []
-    total_completed = 0
+    total = 0
     current_date = start_date
 
-    for task, qty, rate in zip(tasks, quantities, rates):
+    for qty, rate in zip(quantities, rates):
+        daily = rate * crews
+        days = int(np.ceil(qty / daily))
 
-        completed = 0
+        dates = np.busday_offset(current_date, np.arange(days), roll='forward')
+        prod = np.minimum(daily * np.arange(1, days+1), qty)
 
-        while completed < qty:
+        cumulative.extend(total + prod)
+        total += qty
 
-            # Determine crews for the day
+        finish_date = dates[-1]
+        task_finish_dates.append((finish_date, qty))
+
+        current_date = np.busday_offset(finish_date, 1, roll='forward')
+
+    dates_full = np.busday_offset(start_date, np.arange(len(cumulative)), roll='forward')
+
+    return dates_full, cumulative, task_finish_dates
+
+# =========================
+# BUILD WINDOW ADJUSTED CURVE
+# =========================
+
+def build_curve_with_window(tasks, quantities, rates):
+    cumulative = []
+    task_finish_dates = []
+    total = 0
+    current_date = start_date
+
+    for i, (qty, rate) in enumerate(zip(quantities, rates)):
+        qty_done = 0
+
+        while qty_done < qty:
             if use_window and window_start <= current_date <= window_end:
-                crews_today = window_crews
+                crews = window_crews
             else:
-                crews_today = base_crews
+                crews = base_crews
 
-            daily_production = rate * crews_today
+            daily = rate * crews
+            qty_done += daily
+            total += min(daily, qty - (qty_done - daily))
 
-            remaining = qty - completed
-            actual_today = min(daily_production, remaining)
-
-            completed += actual_today
-            total_completed += actual_today
-
-            cumulative.append(total_completed)
-            dates.append(current_date)
+            cumulative.append(total)
 
             current_date = np.busday_offset(current_date, 1, roll='forward')
 
-        task_finish_dates.append((task, current_date))
+        task_finish_dates.append((current_date, qty))
 
-    return np.array(dates), cumulative, task_finish_dates
+    dates_full = np.busday_offset(start_date, np.arange(len(cumulative)), roll='forward')
 
-# ==========================================================
-# GENERATE CURVES
-# ==========================================================
+    return dates_full, cumulative, task_finish_dates
 
-dates1, cumulative1, finishes1 = build_curve(tasks_span1, quantities_span1, rates_span1)
-dates2, cumulative2, finishes2 = build_curve(tasks_span2, quantities_span2, rates_span2)
+# =========================
+# GENERATE DATA
+# =========================
 
-# ==========================================================
-# PLOTTING
-# ==========================================================
+if use_window:
+    d1, c1, f1 = build_curve_with_window(tasks_span1, quantities_span1, rate_per_crew[:3])
+    d2, c2, f2 = build_curve_with_window(tasks_span2, quantities_span2, rate_per_crew[3:])
+else:
+    d1, c1, f1 = build_curve(tasks_span1, quantities_span1, rate_per_crew[:3], base_crews)
+    d2, c2, f2 = build_curve(tasks_span2, quantities_span2, rate_per_crew[3:], base_crews)
+
+# =========================
+# PLOT
+# =========================
 
 col1, col2 = st.columns(2)
 
-# -------------------------
-# SPAN 7-21
-# -------------------------
+# =========================
+# SPAN 7-21 GRAPH
+# =========================
 
 with col1:
+    fig1, ax1 = plt.subplots(figsize=(10,6))
 
-    fig1, ax1 = plt.subplots(figsize=(11,6))
-
-    ax1.plot(dates1, cumulative1)
-
+    ax1.plot(d1, c1)
     ax1.set_title("Span 7-21 Production")
-    ax1.set_ylabel("Cumulative Units")
 
-    # Deadline ONLY here
+    # Deadline only here
     ax1.axvline(deadline_span1, linestyle='--')
 
     # Window shading
@@ -121,26 +142,23 @@ with col1:
         ax1.axvspan(window_start, window_end, alpha=0.2)
 
     # Completion lines
-    for task, finish_date in finishes1:
-        ax1.axvline(finish_date, linestyle=':', alpha=0.6)
+    for date, qty in f1:
+        ax1.axvline(date, linestyle=':', alpha=0.5)
 
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
     fig1.autofmt_xdate()
 
     st.pyplot(fig1)
 
-# -------------------------
-# SPAN 22-36B
-# -------------------------
+# =========================
+# SPAN 22-36B GRAPH
+# =========================
 
 with col2:
+    fig2, ax2 = plt.subplots(figsize=(10,6))
 
-    fig2, ax2 = plt.subplots(figsize=(11,6))
-
-    ax2.plot(dates2, cumulative2)
-
+    ax2.plot(d2, c2)
     ax2.set_title("Span 22-36B Production")
-    ax2.set_ylabel("Cumulative Units")
 
     # NO DEADLINE HERE
 
@@ -149,52 +167,43 @@ with col2:
         ax2.axvspan(window_start, window_end, alpha=0.2)
 
     # Completion lines
-    for task, finish_date in finishes2:
-        ax2.axvline(finish_date, linestyle=':', alpha=0.6)
+    for date, qty in f2:
+        ax2.axvline(date, linestyle=':', alpha=0.5)
 
     ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
     fig2.autofmt_xdate()
 
     st.pyplot(fig2)
 
-# ==========================================================
+# =========================
 # WINDOW IMPACT SUMMARY
-# ==========================================================
+# =========================
 
 if use_window:
-
     st.markdown("## 📈 Window Impact Summary")
 
-    business_days = np.busday_count(window_start, window_end + np.timedelta64(1, 'D'))
+    days = np.busday_count(window_start, window_end + np.timedelta64(1, 'D'))
 
-    # Calculate theoretical production
-    base_daily_total = (
-        sum(rates_span1) + sum(rates_span2)
-    ) * base_crews
+    base_daily = np.sum(rate_per_crew) * base_crews
+    window_daily = np.sum(rate_per_crew) * window_crews
 
-    window_daily_total = (
-        sum(rates_span1) + sum(rates_span2)
-    ) * window_crews
+    base_total = base_daily * days
+    window_total = window_daily * days
 
-    base_total = base_daily_total * business_days
-    window_total = window_daily_total * business_days
     gain = window_total - base_total
 
-    st.write(f"Business Days: {business_days}")
-    st.write(f"Production with {base_crews} crews: {int(base_total)} total units")
-    st.write(f"Production with {window_crews} crews: {int(window_total)} total units")
-    st.write(f"Net Gain: +{int(gain)} units")
+    st.write(f"Business Days: {days}")
+    st.write(f"Production with {base_crews} crews: {int(base_total)} total items")
+    st.write(f"Production with {window_crews} crews: {int(window_total)} total items")
+    st.write(f"Net Gain: +{int(gain)} items")
 
-    # Determine which items were completed during window
-    completed_during_window = []
+    # Determine completed items
+    completed_items = []
+    for (date, qty), task in zip(f1 + f2, tasks_span1 + tasks_span2):
+        if window_start <= date <= window_end:
+            completed_items.append(task)
 
-    for task, finish_date in finishes1 + finishes2:
-        if window_start <= finish_date <= window_end:
-            completed_during_window.append(task)
-
-    if completed_during_window:
-        st.markdown("### Items Completed During Window")
-        for item in completed_during_window:
+    if completed_items:
+        st.write("Items completed during window:")
+        for item in completed_items:
             st.write(f"• {item}")
-    else:
-        st.write("No items were fully completed during the window.")
