@@ -1,394 +1,222 @@
 import streamlit as st
 import matplotlib.pyplot as plt
-import numpy as np
-import datetime as dt
+from datetime import datetime, timedelta
 
-# =====================================================
-# PAGE CONFIG
-# =====================================================
 st.set_page_config(page_title="FM Projections", layout="wide")
 st.title("📊 FM Projections - Production Timeline")
 
 # =====================================================
 # TRUE TOTAL JOB QUANTITIES
 # =====================================================
-TOTALS_SPAN1 = {"Stringers": 1024, "Cross Frames": 130, "Cross Girders": 28}
-TOTALS_SPAN2 = {"Stringers": 2115, "Portals": 16}
+
+TOTALS_SPAN1 = {
+    "Stringers": 1023,
+    "Cross Frames": 130,
+    "Cross Girders": 28
+}
+
+TOTALS_SPAN2 = {
+    "Stringers": 852,
+    "Cross Frames": 82,
+    "Cross Girders": 22,
+    "Portals": 12
+}
 
 # =====================================================
-# START DATE (BUSINESS DAY)
+# HELPER FUNCTIONS
 # =====================================================
-today = dt.date.today()
-start_date = np.datetime64(today, "D")
-if not np.is_busday(start_date):
-    start_date = np.busday_offset(start_date, 0, roll="forward")
 
-# =====================================================
-# SESSION STATE (multiple temp windows)
-# =====================================================
-if "temp_windows" not in st.session_state:
-    st.session_state.temp_windows = []  # [{"start": date, "end": date, "crews": int}, ...]
-if "temp_enabled" not in st.session_state:
-    st.session_state.temp_enabled = False
+def next_business_day(date):
+    date += timedelta(days=1)
+    while date.weekday() >= 5:
+        date += timedelta(days=1)
+    return date
 
-# =====================================================
-# TOP PAGE SELECTOR (NAV)
-# =====================================================
-page = st.radio(
-    "Select analysis type",
-    ["Standard Projection (Manual Rates)", "Rate-Based Projection (Measured Rates)"],
-    horizontal=True,
-    key="page_selector",
-)
 
-# =====================================================
-# HELPERS
-# =====================================================
-def ensure_busday(d):
-    d = np.datetime64(d, "D")
-    if not np.is_busday(d):
-        d = np.busday_offset(d, 0, roll="forward")
-    return d
+def build_schedule(totals, rates, start_date):
+    remaining = totals.copy()
+    current_date = start_date
 
-def to_pydate(d):
-    return dt.date.fromisoformat(str(np.datetime64(d, "D")))
+    schedule = {k: [(current_date, 0)] for k in totals}
+    completion_dates = {}
 
-def overlap_window(x_min, x_max, w_start, w_end):
-    a = max(x_min, w_start)
-    b = min(x_max, w_end)
-    if a <= b:
-        return a, b
-    return None
+    while any(v > 0 for v in remaining.values()):
+        for item in remaining:
+            if remaining[item] > 0:
+                remaining[item] -= rates.get(item, 0)
+                produced = totals[item] - max(remaining[item], 0)
+                schedule[item].append((current_date, min(produced, totals[item])))
 
-def crews_for_date(day: dt.date, base: int) -> int:
-    """LAST window wins if overlapping."""
-    if not st.session_state.temp_enabled:
-        return base
-    crews = base
-    for w in st.session_state.temp_windows:
-        if w["start"] <= day <= w["end"]:
-            crews = int(w["crews"])
-    return crews
+                if remaining[item] <= 0 and item not in completion_dates:
+                    completion_dates[item] = current_date
 
-def build_schedule(tasks, quantities, per_crew_rates, start_dt64, base_crews: int):
-    remaining = np.array(quantities, dtype=float)
-    cumulative = [0.0]
-    dates = [ensure_busday(start_dt64)]
-    completion_dates = []
+        current_date = next_business_day(current_date)
 
-    current_day = ensure_busday(start_dt64)
-    task_index = 0
-    finish_day = ensure_busday(start_dt64)
+    return schedule, completion_dates
 
-    while task_index < len(tasks) and remaining.sum() > 0:
-        current_day = ensure_busday(current_day)
-        day_py = to_pydate(current_day)
 
-        crews_today = crews_for_date(day_py, base_crews)
-        daily_rate = float(per_crew_rates[task_index]) * float(crews_today)
+def plot_schedule(schedule, totals, title, deadline=None):
+    fig, ax = plt.subplots(figsize=(10, 5))
 
-        # If rate is 0, nothing will ever finish -> break safely
-        if daily_rate <= 0:
-            break
+    for item, data in schedule.items():
+        x = [d[0] for d in data]
+        y = [d[1] for d in data]
+        ax.plot(x, y, label=item)
+        ax.axhline(totals[item], linestyle="--", linewidth=0.8)
 
-        completed_today = min(daily_rate, remaining[task_index])
-        remaining[task_index] -= completed_today
-        cumulative.append(cumulative[-1] + completed_today)
+    if deadline:
+        ax.axvline(deadline, linestyle="-", linewidth=2)
 
-        if remaining[task_index] <= 1e-9:
-            completion_dates.append(current_day)
-            task_index += 1
-
-        finish_day = current_day
-        current_day = np.busday_offset(current_day, 1)
-        dates.append(current_day)
-
-    return dates, cumulative, completion_dates, finish_day
-
-def plot_span(dates, curve, tasks, completion_dates, title, show_deadline=False, deadline_date=None, y_offset=0.0):
-    x = [to_pydate(d) for d in dates]
-    y = [v + y_offset for v in curve]
-
-    fig, ax = plt.subplots(figsize=(15, 6))
-    ax.plot(x, y, linewidth=3)
-
-    # Shade each temp window if it overlaps this plot's date range
-    if st.session_state.temp_enabled and st.session_state.temp_windows:
-        x_min, x_max = min(x), max(x)
-        for w in st.session_state.temp_windows:
-            ov = overlap_window(x_min, x_max, w["start"], w["end"])
-            if ov:
-                a, b = ov
-                ax.axvspan(a, b, alpha=0.18)
-                ax.text(
-                    a,
-                    (max(y) * 0.95) if max(y) > 0 else 0.0,
-                    f"Temp crews: {w['crews']}",
-                    fontsize=9,
-                    fontweight="bold",
-                    va="top",
-                )
-
-    colors = ["green", "orange", "purple", "blue"]
-    label_y = (max(y) * 0.1) if max(y) > 0 else 0.0
-
-    for task, comp, color in zip(tasks, completion_dates, colors):
-        comp_py = to_pydate(comp)
-        ax.axvline(comp_py, linestyle="--", color=color)
-        ax.text(
-            comp_py,
-            label_y,
-            f"{task} Complete: {comp_py.strftime('%m/%d/%Y')}",
-            rotation=90,
-            fontsize=9,
-            color=color,
-            fontweight="bold",
-            va="bottom",
-        )
-
-    if show_deadline and deadline_date is not None:
-        ax.axvline(deadline_date, color="red", linewidth=3)
-
-    ax.set_title(title, fontweight="bold")
-    ax.set_ylabel("Items Completed")
+    ax.set_title(title)
+    ax.set_ylabel("Cumulative Quantity")
     ax.set_xlabel("Date")
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
+    ax.legend()
+    ax.set_ylim(bottom=0)
+    ax.grid(True)
+
     return fig
 
+
 # =====================================================
-# SIDEBAR (shared across both pages)
+# SIDEBAR INPUTS
 # =====================================================
-st.sidebar.header("Inputs")
 
-# ---- Completed (shared)
-st.sidebar.subheader("Span 7–21 Completed")
-c_s1 = st.sidebar.number_input("Stringers Completed (7–21)", 0, TOTALS_SPAN1["Stringers"], 0, key="c_s1")
-c_cf1 = st.sidebar.number_input("Cross Frames Completed (7–21)", 0, TOTALS_SPAN1["Cross Frames"], 0, key="c_cf1")
-c_cg1 = st.sidebar.number_input("Cross Girders Completed (7–21)", 0, TOTALS_SPAN1["Cross Girders"], 0, key="c_cg1")
+st.sidebar.header("⚙️ Inputs")
 
-st.sidebar.subheader("Span 22–36B Completed")
-c_s2 = st.sidebar.number_input("Stringers Completed (22–36B)", 0, TOTALS_SPAN2["Stringers"], 0, key="c_s2")
-c_p2 = st.sidebar.number_input("Portals Completed", 0, TOTALS_SPAN2["Portals"], 0, key="c_p2")
+span1_start = st.sidebar.date_input("Span 7–21 Start Date", datetime.today())
+deadline = st.sidebar.date_input("Span 7–21 Deadline")
 
-# ---- Crews + deadline (shared)
-base_crews = st.sidebar.number_input("Base Crews", 1, value=2, key="base_crews")
-deadline_input = st.sidebar.date_input(
-    "Deadline (Span 7–21)",
-    value=max(dt.date(today.year, 4, 30), today),
-    min_value=today,
-    key="deadline_input",
-)
+span1_rates = {}
+st.sidebar.markdown("### Span 7–21 Rates (Per Day)")
+for item in TOTALS_SPAN1:
+    span1_rates[item] = st.sidebar.number_input(
+        f"{item} Rate",
+        min_value=0.0,
+        value=5.0,
+        step=0.5
+    )
 
-# ---- Rates section (differs by page)
-if page == "Standard Projection (Manual Rates)":
-    st.sidebar.subheader("Production Rates (per day for 2 crews)")
-    stringers_rate = st.sidebar.number_input("Stringers rate", 0.1, value=16.0, key="stringers_rate")
-    cross_frames_rate = st.sidebar.number_input("Cross Frames rate", 0.1, value=10.0, key="cross_frames_rate")
-    cross_girders_rate = st.sidebar.number_input("Cross Girders rate", 0.1, value=1.5, key="cross_girders_rate")
-    portals_rate = st.sidebar.number_input("Portals rate", 0.1, value=2.0, key="portals_rate")
+span2_rates = {}
+st.sidebar.markdown("### Span 22–36B Rates (Per Day)")
+for item in TOTALS_SPAN2:
+    span2_rates[item] = st.sidebar.number_input(
+        f"{item} Rate ",
+        min_value=0.0,
+        value=5.0,
+        step=0.5,
+        key=f"span2_{item}"
+    )
+
+# =====================================================
+# ITEM SELECTION
+# =====================================================
+
+st.sidebar.markdown("### 📌 Span 7–21 Display Items")
+
+if st.sidebar.button("Select All Span 7–21"):
+    selected_span1_items = list(TOTALS_SPAN1.keys())
+elif st.sidebar.button("Clear All Span 7–21"):
+    selected_span1_items = []
 else:
-    st.sidebar.subheader("Measured Rate Inputs (Days can be 0)")
-
-    # Allow 0 days now
-    days_measured_s1 = st.sidebar.number_input(
-        "Span 7–21 Days Measured",
-        min_value=0,
-        value=0,
-        step=1,
-        key="days_measured_s1",
-    )
-    days_measured_s2 = st.sidebar.number_input(
-        "Span 22–36B Days Measured",
-        min_value=0,
-        value=10,
-        step=1,
-        key="days_measured_s2",
+    selected_span1_items = st.sidebar.multiselect(
+        "Select items to display (Span 7–21)",
+        list(TOTALS_SPAN1.keys()),
+        default=list(TOTALS_SPAN1.keys())
     )
 
-    def safe_rate(completed, days):
-        # If days is 0, rate should be 0 (meaning "no measured rate / ignore")
-        if days is None or days <= 0:
-            return 0.0
-        return float(completed) / float(days)
+st.sidebar.markdown("### 📌 Span 22–36B Display Items")
 
-    # Rates derived from completed / days measured (per day for 2 crews)
-    stringers_rate = safe_rate(c_s1, days_measured_s1)
-    cross_frames_rate = safe_rate(c_cf1, days_measured_s1)
-    cross_girders_rate = safe_rate(c_cg1, days_measured_s1)
-    portals_rate = safe_rate(c_p2, days_measured_s2)
+if st.sidebar.button("Select All Span 22–36B"):
+    selected_span2_items = list(TOTALS_SPAN2.keys())
+elif st.sidebar.button("Clear All Span 22–36B"):
+    selected_span2_items = []
+else:
+    selected_span2_items = st.sidebar.multiselect(
+        "Select items to display (Span 22–36B)",
+        list(TOTALS_SPAN2.keys()),
+        default=list(TOTALS_SPAN2.keys())
+    )
 
-    st.sidebar.markdown("**Derived Rates (per day for 2 crews)**")
-    st.sidebar.write(f"- Stringers: **{stringers_rate:.2f}**")
-    st.sidebar.write(f"- Cross Frames: **{cross_frames_rate:.2f}**")
-    st.sidebar.write(f"- Cross Girders: **{cross_girders_rate:.2f}**")
-    st.sidebar.write(f"- Portals: **{portals_rate:.2f}**")
-
-    if days_measured_s1 == 0:
-        st.sidebar.info("Span 7–21 days measured = 0 → derived rates set to 0 for Span 7–21 items.")
-
-# ---- Temp windows (shared)
-st.sidebar.subheader("Temporary Crew Adjustment Windows")
-st.session_state.temp_enabled = st.sidebar.checkbox(
-    "Enable Temporary Crew Changes",
-    value=st.session_state.temp_enabled,
-    key="enable_temp",
+filter_completion = st.sidebar.checkbox(
+    "Completion based only on selected items",
+    value=True
 )
 
-if st.session_state.temp_enabled:
-    new_start = st.sidebar.date_input(
-        "New Window Start Date",
-        value=today,
-        min_value=today,
-        key="new_window_start",
-    )
-    new_end = st.sidebar.date_input(
-        "New Window End Date",
-        value=new_start,
-        min_value=new_start,
-        key="new_window_end",
-    )
-    new_crews = st.sidebar.number_input(
-        "Crews During New Window",
-        min_value=1,
-        value=3,
-        key="new_window_crews",
+# =====================================================
+# BUILD SCHEDULES
+# =====================================================
+
+if selected_span1_items:
+    filtered_span1_totals = {k: v for k, v in TOTALS_SPAN1.items() if k in selected_span1_items}
+    filtered_span1_rates = {k: span1_rates[k] for k in selected_span1_items}
+
+    span1_schedule, span1_completion = build_schedule(
+        filtered_span1_totals,
+        filtered_span1_rates,
+        span1_start
     )
 
-    col1, col2 = st.sidebar.columns(2)
-    if col1.button("✅ Confirm / Add Window", key="add_window_btn"):
-        st.session_state.temp_windows.append({"start": new_start, "end": new_end, "crews": int(new_crews)})
-        st.rerun()
+    if filter_completion:
+        span1_finish = max(span1_completion.values())
+    else:
+        full_schedule, full_completion = build_schedule(TOTALS_SPAN1, span1_rates, span1_start)
+        span1_finish = max(full_completion.values())
 
-    if col2.button("🔄 Reset All Windows", key="reset_all_windows_btn"):
-        st.session_state.temp_windows = []
-        st.rerun()
+else:
+    span1_schedule = {}
+    span1_finish = span1_start
+    st.warning("No items selected for Span 7–21")
 
-    if st.session_state.temp_windows:
-        st.sidebar.markdown("**Active windows (last wins if overlapping):**")
-        for i, w in enumerate(st.session_state.temp_windows):
-            cols = st.sidebar.columns([6, 2])
-            cols[0].write(f"{i+1}) {w['start']} → {w['end']} | crews={w['crews']}")
-            if cols[1].button("❌", key=f"del_window_{i}"):
-                st.session_state.temp_windows.pop(i)
-                st.rerun()
+# Span 2 starts after Span 1 finish
+span2_start = next_business_day(span1_finish)
 
-# =====================================================
-# REMAINING QUANTITIES (always)
-# =====================================================
-r_s1 = max(TOTALS_SPAN1["Stringers"] - c_s1, 0)
-r_cf1 = max(TOTALS_SPAN1["Cross Frames"] - c_cf1, 0)
-r_cg1 = max(TOTALS_SPAN1["Cross Girders"] - c_cg1, 0)
+if selected_span2_items:
+    filtered_span2_totals = {k: v for k, v in TOTALS_SPAN2.items() if k in selected_span2_items}
+    filtered_span2_rates = {k: span2_rates[k] for k in selected_span2_items}
 
-r_s2 = max(TOTALS_SPAN2["Stringers"] - c_s2, 0)
-r_p2 = max(TOTALS_SPAN2["Portals"] - c_p2, 0)
-
-# =====================================================
-# TOTALS / COMPLETED / REMAINING (live, read-only)
-# =====================================================
-st.subheader("Totals / Completed / Remaining")
-
-colA, colB = st.columns(2)
-
-with colA:
-    st.markdown("### Span 7–21")
-    st.markdown("**Totals**")
-    t1, t2, t3 = st.columns(3)
-    t1.metric("Stringers", TOTALS_SPAN1["Stringers"])
-    t2.metric("Cross Frames", TOTALS_SPAN1["Cross Frames"])
-    t3.metric("Cross Girders", TOTALS_SPAN1["Cross Girders"])
-
-    st.markdown("**Completed**")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Stringers", c_s1)
-    c2.metric("Cross Frames", c_cf1)
-    c3.metric("Cross Girders", c_cg1)
-
-    st.markdown("**Remaining**")
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Stringers", int(r_s1))
-    r2.metric("Cross Frames", int(r_cf1))
-    r3.metric("Cross Girders", int(r_cg1))
-
-with colB:
-    st.markdown("### Span 22–36B")
-    st.markdown("**Totals**")
-    t1, t2 = st.columns(2)
-    t1.metric("Stringers", TOTALS_SPAN2["Stringers"])
-    t2.metric("Portals", TOTALS_SPAN2["Portals"])
-
-    st.markdown("**Completed**")
-    c1, c2 = st.columns(2)
-    c1.metric("Stringers", c_s2)
-    c2.metric("Portals", c_p2)
-
-    st.markdown("**Remaining**")
-    r1, r2 = st.columns(2)
-    r1.metric("Stringers", int(r_s2))
-    r2.metric("Portals", int(r_p2))
-
-# =====================================================
-# RATES -> PER CREW (scheduler expects per-crew-per-day)
-# Inputs are "per day for 2 crews", so /2 = per crew.
-# =====================================================
-per_crew_rates_span1 = np.array([stringers_rate, cross_frames_rate, cross_girders_rate], dtype=float) / 2.0
-per_crew_rates_span2 = np.array([stringers_rate, portals_rate], dtype=float) / 2.0
-
-# =====================================================
-# RUN PROJECTIONS (same features on both pages)
-# =====================================================
-span1_tasks = ["Stringers", "Cross Frames", "Cross Girders"]
-span1_dates, span1_curve, span1_completion, span1_finish_day = build_schedule(
-    span1_tasks,
-    [r_s1, r_cf1, r_cg1],
-    per_crew_rates_span1,
-    start_date,
-    base_crews=base_crews,
-)
-
-span1_finish_date = to_pydate(span1_finish_day)
-span1_end_value = span1_curve[-1] if len(span1_curve) else 0.0
-
-span2_tasks = ["Stringers", "Portals"]
-span2_dates, span2_curve, span2_completion, span2_finish_day = build_schedule(
-    span2_tasks,
-    [r_s2, r_p2],
-    per_crew_rates_span2,
-    span1_finish_day,
-    base_crews=base_crews,
-)
-
-span2_finish_date = to_pydate(span2_finish_day)
-
-# =====================================================
-# DISPLAY (finish dates + graphs)
-# =====================================================
-st.subheader("Span 7–21 Projection")
-st.write(f"**Projected finish (Span 7–21):** {span1_finish_date.strftime('%m/%d/%Y')}")
-st.pyplot(
-    plot_span(
-        span1_dates,
-        span1_curve,
-        span1_tasks,
-        span1_completion,
-        "Span 7–21 Production",
-        show_deadline=True,
-        deadline_date=deadline_input,
-        y_offset=0.0,
+    span2_schedule, span2_completion = build_schedule(
+        filtered_span2_totals,
+        filtered_span2_rates,
+        span2_start
     )
-)
+else:
+    span2_schedule = {}
+    st.warning("No items selected for Span 22–36B")
 
-st.subheader("Span 22–36B Projection")
-st.write(f"**Projected finish (Span 22–36B):** {span2_finish_date.strftime('%m/%d/%Y')}")
-st.pyplot(
-    plot_span(
-        span2_dates,
-        span2_curve,
-        span2_tasks,
-        span2_completion,
-        "Span 22–36B Production",
-        show_deadline=False,
-        deadline_date=None,
-        y_offset=span1_end_value,
-    )
-)
+# =====================================================
+# DISPLAY OUTPUT
+# =====================================================
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if span1_schedule:
+        fig1 = plot_schedule(
+            span1_schedule,
+            filtered_span1_totals,
+            "Span 7–21 Production",
+            deadline=deadline
+        )
+        st.pyplot(fig1)
+
+with col2:
+    if span2_schedule:
+        fig2 = plot_schedule(
+            span2_schedule,
+            filtered_span2_totals,
+            "Span 22–36B Production"
+        )
+        st.pyplot(fig2)
+
+# =====================================================
+# COMPLETION METRICS
+# =====================================================
+
+st.markdown("### 📅 Completion Dates")
+
+if selected_span1_items:
+    st.write(f"Span 7–21 Finish: **{span1_finish.date()}**")
+
+if selected_span2_items and span2_schedule:
+    span2_finish = max([d[-1][0] for d in span2_schedule.values()])
+    st.write(f"Span 22–36B Finish: **{span2_finish.date()}**")
