@@ -1,222 +1,300 @@
 import streamlit as st
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import numpy as np
+import datetime as dt
 
+# =====================================================
+# PAGE CONFIG
+# =====================================================
 st.set_page_config(page_title="FM Projections", layout="wide")
 st.title("📊 FM Projections - Production Timeline")
 
 # =====================================================
 # TRUE TOTAL JOB QUANTITIES
 # =====================================================
-
-TOTALS_SPAN1 = {
-    "Stringers": 1023,
-    "Cross Frames": 130,
-    "Cross Girders": 28
-}
-
-TOTALS_SPAN2 = {
-    "Stringers": 852,
-    "Cross Frames": 82,
-    "Cross Girders": 22,
-    "Portals": 12
-}
+TOTALS_SPAN1 = {"Stringers": 1024, "Cross Frames": 130, "Cross Girders": 28}
+TOTALS_SPAN2 = {"Stringers": 2115, "Portals": 16}
 
 # =====================================================
-# HELPER FUNCTIONS
+# START DATE (BUSINESS DAY)
 # =====================================================
-
-def next_business_day(date):
-    date += timedelta(days=1)
-    while date.weekday() >= 5:
-        date += timedelta(days=1)
-    return date
-
-
-def build_schedule(totals, rates, start_date):
-    remaining = totals.copy()
-    current_date = start_date
-
-    schedule = {k: [(current_date, 0)] for k in totals}
-    completion_dates = {}
-
-    while any(v > 0 for v in remaining.values()):
-        for item in remaining:
-            if remaining[item] > 0:
-                remaining[item] -= rates.get(item, 0)
-                produced = totals[item] - max(remaining[item], 0)
-                schedule[item].append((current_date, min(produced, totals[item])))
-
-                if remaining[item] <= 0 and item not in completion_dates:
-                    completion_dates[item] = current_date
-
-        current_date = next_business_day(current_date)
-
-    return schedule, completion_dates
-
-
-def plot_schedule(schedule, totals, title, deadline=None):
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    for item, data in schedule.items():
-        x = [d[0] for d in data]
-        y = [d[1] for d in data]
-        ax.plot(x, y, label=item)
-        ax.axhline(totals[item], linestyle="--", linewidth=0.8)
-
-    if deadline:
-        ax.axvline(deadline, linestyle="-", linewidth=2)
-
-    ax.set_title(title)
-    ax.set_ylabel("Cumulative Quantity")
-    ax.set_xlabel("Date")
-    ax.legend()
-    ax.set_ylim(bottom=0)
-    ax.grid(True)
-
-    return fig
-
+today = dt.date.today()
+start_date = np.datetime64(today, "D")
+if not np.is_busday(start_date):
+    start_date = np.busday_offset(start_date, 0, roll="forward")
 
 # =====================================================
-# SIDEBAR INPUTS
+# SESSION STATE (multiple temp windows)
 # =====================================================
+if "temp_windows" not in st.session_state:
+    st.session_state.temp_windows = []
 
-st.sidebar.header("⚙️ Inputs")
-
-span1_start = st.sidebar.date_input("Span 7–21 Start Date", datetime.today())
-deadline = st.sidebar.date_input("Span 7–21 Deadline")
-
-span1_rates = {}
-st.sidebar.markdown("### Span 7–21 Rates (Per Day)")
-for item in TOTALS_SPAN1:
-    span1_rates[item] = st.sidebar.number_input(
-        f"{item} Rate",
-        min_value=0.0,
-        value=5.0,
-        step=0.5
-    )
-
-span2_rates = {}
-st.sidebar.markdown("### Span 22–36B Rates (Per Day)")
-for item in TOTALS_SPAN2:
-    span2_rates[item] = st.sidebar.number_input(
-        f"{item} Rate ",
-        min_value=0.0,
-        value=5.0,
-        step=0.5,
-        key=f"span2_{item}"
-    )
+if "temp_enabled" not in st.session_state:
+    st.session_state.temp_enabled = False
 
 # =====================================================
-# ITEM SELECTION
+# NEW: ITEM SELECTION STATE
 # =====================================================
+if "span1_selected" not in st.session_state:
+    st.session_state.span1_selected = list(TOTALS_SPAN1.keys())
 
-st.sidebar.markdown("### 📌 Span 7–21 Display Items")
+if "span2_selected" not in st.session_state:
+    st.session_state.span2_selected = list(TOTALS_SPAN2.keys())
 
-if st.sidebar.button("Select All Span 7–21"):
-    selected_span1_items = list(TOTALS_SPAN1.keys())
-elif st.sidebar.button("Clear All Span 7–21"):
-    selected_span1_items = []
-else:
-    selected_span1_items = st.sidebar.multiselect(
-        "Select items to display (Span 7–21)",
-        list(TOTALS_SPAN1.keys()),
-        default=list(TOTALS_SPAN1.keys())
-    )
-
-st.sidebar.markdown("### 📌 Span 22–36B Display Items")
-
-if st.sidebar.button("Select All Span 22–36B"):
-    selected_span2_items = list(TOTALS_SPAN2.keys())
-elif st.sidebar.button("Clear All Span 22–36B"):
-    selected_span2_items = []
-else:
-    selected_span2_items = st.sidebar.multiselect(
-        "Select items to display (Span 22–36B)",
-        list(TOTALS_SPAN2.keys()),
-        default=list(TOTALS_SPAN2.keys())
-    )
-
-filter_completion = st.sidebar.checkbox(
-    "Completion based only on selected items",
-    value=True
+# =====================================================
+# TOP PAGE SELECTOR (NAV)
+# =====================================================
+page = st.radio(
+    "Select analysis type",
+    ["Standard Projection (Manual Rates)", "Rate-Based Projection (Measured Rates)"],
+    horizontal=True,
+    key="page_selector",
 )
 
 # =====================================================
-# BUILD SCHEDULES
+# HELPERS
 # =====================================================
+def ensure_busday(d):
+    d = np.datetime64(d, "D")
+    if not np.is_busday(d):
+        d = np.busday_offset(d, 0, roll="forward")
+    return d
 
-if selected_span1_items:
-    filtered_span1_totals = {k: v for k, v in TOTALS_SPAN1.items() if k in selected_span1_items}
-    filtered_span1_rates = {k: span1_rates[k] for k in selected_span1_items}
+def to_pydate(d):
+    return dt.date.fromisoformat(str(np.datetime64(d, "D")))
 
-    span1_schedule, span1_completion = build_schedule(
-        filtered_span1_totals,
-        filtered_span1_rates,
-        span1_start
+def overlap_window(x_min, x_max, w_start, w_end):
+    a = max(x_min, w_start)
+    b = min(x_max, w_end)
+    if a <= b:
+        return a, b
+    return None
+
+def crews_for_date(day: dt.date, base: int) -> int:
+    if not st.session_state.temp_enabled:
+        return base
+    crews = base
+    for w in st.session_state.temp_windows:
+        if w["start"] <= day <= w["end"]:
+            crews = int(w["crews"])
+    return crews
+
+def build_schedule(tasks, quantities, per_crew_rates, start_dt64, base_crews: int):
+    remaining = np.array(quantities, dtype=float)
+    cumulative = [0.0]
+    dates = [ensure_busday(start_dt64)]
+    completion_dates = []
+    current_day = ensure_busday(start_dt64)
+    task_index = 0
+    finish_day = ensure_busday(start_dt64)
+
+    while task_index < len(tasks) and remaining.sum() > 0:
+        current_day = ensure_busday(current_day)
+        day_py = to_pydate(current_day)
+        crews_today = crews_for_date(day_py, base_crews)
+        daily_rate = float(per_crew_rates[task_index]) * float(crews_today)
+
+        if daily_rate <= 0:
+            break
+
+        completed_today = min(daily_rate, remaining[task_index])
+        remaining[task_index] -= completed_today
+        cumulative.append(cumulative[-1] + completed_today)
+
+        if remaining[task_index] <= 1e-9:
+            completion_dates.append(current_day)
+            task_index += 1
+
+        finish_day = current_day
+        current_day = np.busday_offset(current_day, 1)
+        dates.append(current_day)
+
+    return dates, cumulative, completion_dates, finish_day
+
+def plot_span(dates, curve, tasks, completion_dates, title,
+              show_deadline=False, deadline_date=None, y_offset=0.0):
+
+    x = [to_pydate(d) for d in dates]
+    y = [v + y_offset for v in curve]
+
+    fig, ax = plt.subplots(figsize=(15, 6))
+    ax.plot(x, y, linewidth=3)
+
+    if st.session_state.temp_enabled and st.session_state.temp_windows:
+        x_min, x_max = min(x), max(x)
+        for w in st.session_state.temp_windows:
+            ov = overlap_window(x_min, x_max, w["start"], w["end"])
+            if ov:
+                a, b = ov
+                ax.axvspan(a, b, alpha=0.18)
+                ax.text(
+                    a,
+                    (max(y) * 0.95) if max(y) > 0 else 0.0,
+                    f"Temp crews: {w['crews']}",
+                    fontsize=9,
+                    fontweight="bold",
+                    va="top",
+                )
+
+    colors = ["green", "orange", "purple", "blue"]
+    label_y = (max(y) * 0.1) if max(y) > 0 else 0.0
+
+    for task, comp, color in zip(tasks, completion_dates, colors):
+        comp_py = to_pydate(comp)
+        ax.axvline(comp_py, linestyle="--", color=color)
+        ax.text(
+            comp_py,
+            label_y,
+            f"{task} Complete: {comp_py.strftime('%m/%d/%Y')}",
+            rotation=90,
+            fontsize=9,
+            color=color,
+            fontweight="bold",
+            va="bottom",
+        )
+
+    if show_deadline and deadline_date is not None:
+        ax.axvline(deadline_date, color="red", linewidth=3)
+
+    ax.set_title(title, fontweight="bold")
+    ax.set_ylabel("Items Completed")
+    ax.set_xlabel("Date")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return fig
+
+# =====================================================
+# NEW: SIDEBAR ITEM SELECTION
+# =====================================================
+st.sidebar.subheader("Display Items on Graph")
+
+st.session_state.span1_selected = st.sidebar.multiselect(
+    "Span 7–21 Items",
+    list(TOTALS_SPAN1.keys()),
+    default=st.session_state.span1_selected,
+)
+
+st.session_state.span2_selected = st.sidebar.multiselect(
+    "Span 22–36B Items",
+    list(TOTALS_SPAN2.keys()),
+    default=st.session_state.span2_selected,
+)
+
+# =====================================================
+# REMAINING QUANTITIES (always)
+# =====================================================
+r_s1 = max(TOTALS_SPAN1["Stringers"] - st.session_state.get("c_s1", 0), 0)
+r_cf1 = max(TOTALS_SPAN1["Cross Frames"] - st.session_state.get("c_cf1", 0), 0)
+r_cg1 = max(TOTALS_SPAN1["Cross Girders"] - st.session_state.get("c_cg1", 0), 0)
+
+r_s2 = max(TOTALS_SPAN2["Stringers"] - st.session_state.get("c_s2", 0), 0)
+r_p2 = max(TOTALS_SPAN2["Portals"] - st.session_state.get("c_p2", 0), 0)
+
+# =====================================================
+# FILTER TASKS BASED ON SELECTION (NEW)
+# =====================================================
+span1_tasks = []
+span1_quantities = []
+span1_rates_list = []
+
+if "Stringers" in st.session_state.span1_selected:
+    span1_tasks.append("Stringers")
+    span1_quantities.append(r_s1)
+    span1_rates_list.append(stringers_rate / 2.0)
+
+if "Cross Frames" in st.session_state.span1_selected:
+    span1_tasks.append("Cross Frames")
+    span1_quantities.append(r_cf1)
+    span1_rates_list.append(cross_frames_rate / 2.0)
+
+if "Cross Girders" in st.session_state.span1_selected:
+    span1_tasks.append("Cross Girders")
+    span1_quantities.append(r_cg1)
+    span1_rates_list.append(cross_girders_rate / 2.0)
+
+span2_tasks = []
+span2_quantities = []
+span2_rates_list = []
+
+if "Stringers" in st.session_state.span2_selected:
+    span2_tasks.append("Stringers")
+    span2_quantities.append(r_s2)
+    span2_rates_list.append(stringers_rate / 2.0)
+
+if "Portals" in st.session_state.span2_selected:
+    span2_tasks.append("Portals")
+    span2_quantities.append(r_p2)
+    span2_rates_list.append(portals_rate / 2.0)
+
+# =====================================================
+# RUN PROJECTIONS (SAFE IF EMPTY)
+# =====================================================
+if span1_tasks:
+    span1_dates, span1_curve, span1_completion, span1_finish_day = build_schedule(
+        span1_tasks,
+        span1_quantities,
+        np.array(span1_rates_list),
+        start_date,
+        base_crews=base_crews,
     )
-
-    if filter_completion:
-        span1_finish = max(span1_completion.values())
-    else:
-        full_schedule, full_completion = build_schedule(TOTALS_SPAN1, span1_rates, span1_start)
-        span1_finish = max(full_completion.values())
-
 else:
-    span1_schedule = {}
-    span1_finish = span1_start
-    st.warning("No items selected for Span 7–21")
+    span1_dates, span1_curve, span1_completion = [], [0], []
+    span1_finish_day = start_date
 
-# Span 2 starts after Span 1 finish
-span2_start = next_business_day(span1_finish)
+span1_finish_date = to_pydate(span1_finish_day)
+span1_end_value = span1_curve[-1] if len(span1_curve) else 0.0
 
-if selected_span2_items:
-    filtered_span2_totals = {k: v for k, v in TOTALS_SPAN2.items() if k in selected_span2_items}
-    filtered_span2_rates = {k: span2_rates[k] for k in selected_span2_items}
-
-    span2_schedule, span2_completion = build_schedule(
-        filtered_span2_totals,
-        filtered_span2_rates,
-        span2_start
+if span2_tasks:
+    span2_dates, span2_curve, span2_completion, span2_finish_day = build_schedule(
+        span2_tasks,
+        span2_quantities,
+        np.array(span2_rates_list),
+        span1_finish_day,
+        base_crews=base_crews,
     )
 else:
-    span2_schedule = {}
-    st.warning("No items selected for Span 22–36B")
+    span2_dates, span2_curve, span2_completion = [], [0], []
+    span2_finish_day = span1_finish_day
+
+span2_finish_date = to_pydate(span2_finish_day)
 
 # =====================================================
-# DISPLAY OUTPUT
+# DISPLAY
 # =====================================================
+st.subheader("Span 7–21 Projection")
+st.write(f"**Projected finish (Span 7–21):** {span1_finish_date.strftime('%m/%d/%Y')}")
 
-col1, col2 = st.columns(2)
-
-with col1:
-    if span1_schedule:
-        fig1 = plot_schedule(
-            span1_schedule,
-            filtered_span1_totals,
+if span1_tasks:
+    st.pyplot(
+        plot_span(
+            span1_dates,
+            span1_curve,
+            span1_tasks,
+            span1_completion,
             "Span 7–21 Production",
-            deadline=deadline
+            show_deadline=True,
+            deadline_date=deadline_input,
+            y_offset=0.0,
         )
-        st.pyplot(fig1)
+    )
+else:
+    st.warning("No Span 7–21 items selected.")
 
-with col2:
-    if span2_schedule:
-        fig2 = plot_schedule(
-            span2_schedule,
-            filtered_span2_totals,
-            "Span 22–36B Production"
+st.subheader("Span 22–36B Projection")
+st.write(f"**Projected finish (Span 22–36B):** {span2_finish_date.strftime('%m/%d/%Y')}")
+
+if span2_tasks:
+    st.pyplot(
+        plot_span(
+            span2_dates,
+            span2_curve,
+            span2_tasks,
+            span2_completion,
+            "Span 22–36B Production",
+            show_deadline=False,
+            deadline_date=None,
+            y_offset=span1_end_value,
         )
-        st.pyplot(fig2)
-
-# =====================================================
-# COMPLETION METRICS
-# =====================================================
-
-st.markdown("### 📅 Completion Dates")
-
-if selected_span1_items:
-    st.write(f"Span 7–21 Finish: **{span1_finish.date()}**")
-
-if selected_span2_items and span2_schedule:
-    span2_finish = max([d[-1][0] for d in span2_schedule.values()])
-    st.write(f"Span 22–36B Finish: **{span2_finish.date()}**")
+    )
+else:
+    st.warning("No Span 22–36B items selected.")
