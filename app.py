@@ -12,8 +12,8 @@ st.title("📊 FM Projections - Production Timeline")
 # =====================================================
 # TRUE TOTAL JOB QUANTITIES
 # =====================================================
-TOTALS_SPAN1 = {"Stringers": 1023, "Cross Frames": 130, "Cross Girders": 28}
-TOTALS_SPAN2 = {"Stringers": 2429, "Portals": 16}
+TOTALS_SPAN1 = {"Stringers": 1024, "Cross Frames": 130, "Cross Girders": 28}
+TOTALS_SPAN2 = {"Stringers": 2115, "Portals": 16}
 
 # =====================================================
 # START DATE (BUSINESS DAY)
